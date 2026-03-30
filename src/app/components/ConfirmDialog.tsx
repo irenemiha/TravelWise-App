@@ -24,32 +24,38 @@ export function ConfirmDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden transform transition-all">
-        <div className="p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-gray-900 rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden transform transition-all border border-transparent dark:border-gray-800 animate-in zoom-in-95 duration-200">
+        <div className="p-8">
           <div className="flex justify-between items-start mb-4">
-            <h3 className="text-xl font-bold text-gray-900">{title}</h3>
+            <h3 className="text-xl font-black text-gray-900 dark:text-white leading-tight">
+              {title}
+            </h3>
             <button
               onClick={onCancel}
-              className="p-1 text-gray-400 hover:bg-gray-100 rounded-full transition-colors active:scale-90"
+              className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors active:scale-90"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
-          <p className="text-gray-600 mb-6">{message}</p>
+          
+          <p className="text-gray-600 dark:text-gray-400 mb-8 leading-relaxed">
+            {message}
+          </p>
+          
           <div className="flex gap-3 w-full">
             <button
               onClick={onCancel}
-              className="flex-1 py-3 px-4 rounded-xl font-bold bg-gray-100 text-gray-700 active:bg-gray-200 active:scale-95 transition-all"
+              className="flex-1 py-4 px-4 rounded-2xl font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 active:bg-gray-200 dark:active:bg-gray-700 active:scale-95 transition-all text-m tracking-wider"
             >
               {cancelText}
             </button>
             <button
               onClick={onConfirm}
-              className={`flex-1 py-3 px-4 rounded-xl font-bold active:scale-95 transition-all ${
+              className={`flex-1 py-4 px-4 rounded-2xl font-bold active:scale-95 transition-all text-m tracking-wider ${
                 isDestructive
-                  ? "bg-red-500 text-white active:bg-red-600"
-                  : "bg-blue-600 text-white active:bg-blue-700"
+                  ? "bg-red-500 text-white active:bg-red-600 shadow-lg shadow-red-200 dark:shadow-none"
+                  : "bg-blue-600 text-white active:bg-blue-700 shadow-lg shadow-blue-200 dark:shadow-none"
               }`}
             >
               {confirmText}

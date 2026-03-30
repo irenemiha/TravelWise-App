@@ -12,6 +12,14 @@ import { Notifications } from "./pages/Notifications";
 import { TripChat } from "./pages/TripChat";
 import { Auth } from "./pages/Auth";
 import { Root } from "./Root";
+import { TripSettings } from "./pages/TripSettings";
+import { ManageMembers } from "./pages/ManageMembers";
+import { InvitationPermissions } from "./pages/InvitationPermissions";
+import { PrivacySettings } from "./pages/PrivacySettings";
+import { ChangeDestination } from "./pages/ChangeDestination";
+import { VoteNotifications } from "./pages/VoteNotifications";
+import { LockItinerary } from "./pages/LockItinerary";
+import { HideItinerary } from "./pages/HideItinerary";
 
 export const appRouter = createBrowserRouter([
   {
@@ -29,6 +37,14 @@ export const appRouter = createBrowserRouter([
       { path: "settings", Component: Settings },
       { path: "new-trip", Component: NewTrip },
       { path: "notifications", Component: Notifications },
+      { path: "trip/:id/trip-settings", Component: TripSettings },
+      { path: "manage-members/:id", Component: ManageMembers },
+      { path: "invitation-permissions/:id", Component: InvitationPermissions },
+      { path: "privacy-settings/:id", Component: PrivacySettings },
+      { path: "change-destination/:id", Component: ChangeDestination },
+      { path: "vote-notifications/:id", Component: VoteNotifications },
+      { path: "lock-itinerary/:id", Component: LockItinerary },
+      { path: "hide-itinerary/:id", Component: HideItinerary },
     ],
   },
   {

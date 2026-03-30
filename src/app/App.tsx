@@ -1,6 +1,7 @@
 import { RouterProvider } from "react-router";
 import { appRouter } from "./appRoutes";
 import { Toaster } from "sonner";
+import { useNavigate, useParams, Link } from "react-router";
 
 export default function App() {
   // Adding a unique id to force React Router to fully reload its route configuration

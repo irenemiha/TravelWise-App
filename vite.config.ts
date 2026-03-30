@@ -19,4 +19,10 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+  server: {
+    watch: {
+      // Use polling to watch for file changes, which is more reliable in certain environments (e.g., WSL, Docker)
+      usePolling: true,
+    },
+  },
 })

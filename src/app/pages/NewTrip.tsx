@@ -8,7 +8,7 @@ const MOCK_FRIENDS = [
   { id: "f1", name: "Ana", avatar: "https://images.unsplash.com/photo-1651534400411-eaf227f82ee4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbiUyMHdvbWFufGVufDF8fHx8MTc3NDMwMzU4NHww&ixlib=rb-4.1.0&q=80&w=1080" },
   { id: "f2", name: "Alex", avatar: "https://images.unsplash.com/photo-1635046778483-c190a4bb49c5?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbiUyMG1hbnxlbnwxfHx8fDE3NzQzMDM1ODl8MA&ixlib=rb-4.1.0&q=80&w=1080" },
   { id: "f3", name: "Maria", avatar: "https://images.unsplash.com/photo-1754844362137-88441eb7cc6f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHNtaWxpbmclMjBnaXJsfGVufDF8fHx8MTc3NDMwMzU5NHww&ixlib=rb-4.1.0&q=80&w=1080" },
-  { id: "f4", name: "Andrei", avatar: "https://images.unsplash.com/photo-1712599982295-1ecff6059a57?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHNtaWxpbmclMjBndXl8ZW58MXx8fHwxNzc0MzAzNTk3fDA&ixlib=rb-4.1.0&q=80&w=1080" }
+  { id: "f4", name: "Andrei", avatar: "https://images.unsplash.com/photo-1712599982295-1ecff6059a57?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbiUyMG1hbnxlbnwxfHx8fDE3NzQzMDM1ODl8MA&ixlib=rb-4.1.0&q=80&w=1080" }
 ];
 
 export function NewTrip() {
@@ -59,7 +59,7 @@ export function NewTrip() {
       destination,
       dates: formattedDates,
       members: 1 + selectedFriends.length + invitedEmails.length,
-      image: "https://images.unsplash.com/photo-1739315014260-b581f8fdfa7b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0cmF2ZWwlMjB2YWNhdGlvbiUyMGRlc3RpbmF0aW9ufGVufDF8fHx8MTc3NDI3MzIwOHww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
+      image: "https://images.unsplash.com/photo-1739315014260-b581f8fdfa7b?auto=format&fit=crop&q=80&w=1080",
       status: "planning",
       votes: 0,
       attractions: 0,
@@ -71,86 +71,81 @@ export function NewTrip() {
   const isFormValid = name && destination && startDate && endDate;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center pb-20">
-      <div className="w-full max-w-md bg-white border-b sticky top-0 z-10 flex flex-col items-center shadow-sm">
-        <div className="flex items-center justify-between p-4 w-full">
-          <Link to="/" className="p-2 -ml-2 text-gray-500 active:bg-gray-100 rounded-full transition-colors">
-            <X className="w-6 h-6" />
-          </Link>
-          <h1 className="text-lg font-bold text-gray-900 text-center flex-1">Călătorie Nouă</h1>
-          <div className="w-10"></div> {/* Spacer for centering */}
-        </div>
-      </div>
-
-      <div className="w-full max-w-md p-6 flex flex-col flex-1">
-        <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-6 mx-auto">
-          <Compass className="w-8 h-8 text-blue-600" />
+    /* Am eliminat min-h-screen pentru ca div-ul sa se opreasca exact unde se termina continutul */
+    <div className="bg-gray-50 dark:bg-gray-950 flex flex-col items-center transition-colors duration-300">
+      <div className="w-full max-w-md p-6 flex flex-col items-center">
+        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 flex items-center justify-center mb-4">
+          <Compass className="w-8 h-8 text-blue-600 dark:text-blue-400" />
         </div>
         
-        <h2 className="text-2xl font-bold text-gray-900 mb-2 text-center">Planifică o aventură</h2>
-        <p className="text-gray-500 mb-8 text-sm text-center">Completează detaliile de mai jos pentru a începe planificarea.</p>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1 text-center">Planifică o aventură</h2>
+        <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm text-center">Completează detaliile de mai jos.</p>
         
-        <form onSubmit={handleCreate} className="flex flex-col gap-6 w-full flex-1">
+        <form onSubmit={handleCreate} className="flex flex-col gap-5 w-full">
+          {/* Nume */}
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-bold text-gray-700 ml-1 flex items-center gap-2">
-              <Compass className="w-4 h-4 text-blue-600" /> Numele Călătoriei
+            <label className="text-sm font-bold text-gray-700 dark:text-gray-300 ml-1 flex items-center gap-2">
+              <Compass className="w-4 h-4 text-blue-600 dark:text-blue-400" /> Numele Călătoriei
             </label>
             <input 
               type="text" 
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ex: Eurotrip 2026, Evadare la munte..." 
-              className="w-full bg-white border border-gray-200 rounded-xl p-4 font-bold text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
+              placeholder="Ex: Eurotrip 2026..." 
+              className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600"
               required
             />
           </div>
 
+          {/* Destinație */}
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-bold text-gray-700 ml-1 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-green-600" /> Destinația Principală
+            <label className="text-sm font-bold text-gray-700 dark:text-gray-300 ml-1 flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-green-600 dark:text-green-400" /> Destinația Principală
             </label>
             <input 
               type="text" 
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
               placeholder="Ex: Paris, Tokyo, Bali..." 
-              className="w-full bg-white border border-gray-200 rounded-xl p-4 font-bold text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
+              className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600"
               required
             />
           </div>
 
+          {/* Perioada */}
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-bold text-gray-700 ml-1 flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-purple-600" /> Perioada
+            <label className="text-sm font-bold text-gray-700 dark:text-gray-300 ml-1 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-purple-600 dark:text-purple-400" /> Perioada
             </label>
-            <div className="flex gap-4 w-full">
-              <div className="flex-1 bg-white border border-gray-200 rounded-xl p-3 flex flex-col shadow-sm focus-within:ring-2 focus-within:ring-blue-600 focus-within:border-transparent transition-all relative">
-                <span className="text-[10px] text-gray-500 font-bold mb-1 uppercase tracking-wide pointer-events-none">Plecare</span>
+            <div className="flex gap-3 w-full">
+              <div className="flex-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-3 flex flex-col shadow-sm focus-within:ring-2 focus-within:ring-blue-600 transition-all">
+                <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold mb-1 uppercase tracking-wide">Plecare</span>
                 <input 
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full bg-transparent font-bold text-gray-900 focus:outline-none [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:right-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer" 
+                  className="w-full bg-transparent font-bold text-gray-900 dark:text-white focus:outline-none dark:color-scheme-dark" 
                   required
                 />
               </div>
-              <div className="flex-1 bg-white border border-gray-200 rounded-xl p-3 flex flex-col shadow-sm focus-within:ring-2 focus-within:ring-blue-600 focus-within:border-transparent transition-all relative">
-                <span className="text-[10px] text-gray-500 font-bold mb-1 uppercase tracking-wide pointer-events-none">Întoarcere</span>
+              <div className="flex-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-3 flex flex-col shadow-sm focus-within:ring-2 focus-within:ring-blue-600 transition-all">
+                <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold mb-1 uppercase tracking-wide">Întoarcere</span>
                 <input 
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
                   min={startDate}
-                  className="w-full bg-transparent font-bold text-gray-900 focus:outline-none [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:right-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer" 
+                  className="w-full bg-transparent font-bold text-gray-900 dark:text-white focus:outline-none dark:color-scheme-dark" 
                   required
                 />
               </div>
             </div>
           </div>
 
+          {/* Prieteni */}
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-bold text-gray-700 ml-1 flex items-center gap-2">
-              <Users className="w-4 h-4 text-orange-500" /> Invită prieteni
+            <label className="text-sm font-bold text-gray-700 dark:text-gray-300 ml-1 flex items-center gap-2">
+              <Users className="w-4 h-4 text-orange-500 dark:text-orange-400" /> Invită prieteni
             </label>
             <div className="flex gap-4 overflow-x-auto pb-2 -mx-2 px-2 [&::-webkit-scrollbar]:hidden">
               {MOCK_FRIENDS.map(friend => {
@@ -162,87 +157,75 @@ export function NewTrip() {
                     onClick={() => toggleFriend(friend.id)}
                     className="flex flex-col items-center gap-2 min-w-[70px] transition-transform active:scale-95"
                   >
-                    <div className={`relative w-14 h-14 rounded-full p-1 transition-colors ${isSelected ? 'bg-blue-600' : 'bg-transparent'}`}>
+                    <div className={`relative w-14 h-14 rounded-full p-1 transition-colors ${isSelected ? 'bg-blue-600 dark:bg-blue-500' : 'bg-transparent'}`}>
                       <ImageWithFallback 
                         src={friend.avatar} 
                         alt={friend.name}
-                        className="w-full h-full rounded-full object-cover bg-gray-200"
+                        className="w-full h-full rounded-full object-cover bg-gray-200 dark:bg-gray-800"
                       />
                       {isSelected && (
-                        <div className="absolute -bottom-1 -right-1 bg-blue-600 text-white rounded-full p-1 border-2 border-white">
+                        <div className="absolute -bottom-1 -right-1 bg-blue-600 dark:bg-blue-500 text-white rounded-full p-1 border-2 border-white dark:border-gray-900">
                           <Check className="w-3 h-3" />
                         </div>
                       )}
                     </div>
-                    <span className={`text-xs font-bold ${isSelected ? 'text-blue-600' : 'text-gray-500'}`}>
+                    <span className={`text-xs font-bold ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}>
                       {friend.name}
                     </span>
                   </button>
                 );
               })}
             </div>
+          </div>
 
-            <div className="mt-4 flex flex-col gap-2">
-              <label className="text-sm font-bold text-gray-700 ml-1 flex items-center gap-2">
-                <Mail className="w-4 h-4 text-blue-500" /> Invită prin email
-              </label>
-              <div className="flex gap-2 w-full">
-                <input
-                  type="email"
-                  value={emailInput}
-                  onChange={(e) => setEmailInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddEmail(e);
-                    }
-                  }}
-                  placeholder="Adresă de email..."
-                  className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 font-bold text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddEmail}
-                  disabled={!emailInput || !emailInput.includes("@")}
-                  className="bg-blue-600 text-white p-3 rounded-xl shadow-sm active:scale-95 disabled:bg-gray-200 disabled:text-gray-400 disabled:active:scale-100 transition-all"
-                >
-                  <Plus className="w-5 h-5" />
-                </button>
-              </div>
-
-              {invitedEmails.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {invitedEmails.map((email) => (
-                    <div key={email} className="bg-blue-50 text-blue-700 text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-2 animate-in fade-in">
-                      <span>{email}</span>
-                      <button 
-                        type="button" 
-                        onClick={() => removeEmail(email)}
-                        className="text-blue-400 hover:text-blue-600 active:scale-90 transition-transform"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+          {/* Email */}
+          <div className="mt-2 flex flex-col gap-2">
+            <label className="text-sm font-bold text-gray-700 dark:text-gray-300 ml-1 flex items-center gap-2">
+              <Mail className="w-4 h-4 text-blue-500 dark:text-blue-400" /> Invită prin email
+            </label>
+            <div className="flex gap-2 w-full">
+              <input
+                type="email"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                placeholder="Adresă de email..."
+                className="flex-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3 font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm placeholder:text-gray-400 dark:placeholder:text-gray-600"
+              />
+              <button
+                type="button"
+                onClick={handleAddEmail}
+                disabled={!emailInput || !emailInput.includes("@")}
+                className="bg-blue-600 text-white p-3 rounded-xl active:scale-95 disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-400 transition-all"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
             </div>
+            
+            {invitedEmails.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-1">
+                {invitedEmails.map((email) => (
+                  <div key={email} className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[11px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-2 animate-in fade-in transition-colors">
+                    <span>{email}</span>
+                    <button type="button" onClick={() => removeEmail(email)} className="text-blue-400 dark:text-blue-500"><X className="w-3 h-3" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          <div className="mt-auto pt-8 pb-4">
-            <button 
-              type="submit"
-              disabled={!isFormValid}
-              className={`w-full font-bold p-4 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all ${
-                isFormValid 
-                  ? "bg-blue-600 text-white shadow-blue-600/30 active:scale-95 active:bg-blue-700" 
-                  : "bg-gray-200 text-gray-400 cursor-not-allowed shadow-none"
-              }`}
-            >
-              Creează călătoria
-              <ChevronRight className="w-5 h-5" />
-            </button>
-          </div>
+          {/* Buton Final - Am eliminat div-ul de wrap cu margini suplimentare */}
+          <button 
+            type="submit"
+            disabled={!isFormValid}
+            className={`w-full font-bold p-4 mt-4 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all ${
+              isFormValid 
+                ? "bg-blue-600 dark:bg-blue-600 text-white active:scale-95 active:bg-blue-700" 
+                : "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed shadow-none"
+            }`}
+          >
+            Creează călătoria
+            <ChevronRight className="w-5 h-5" />
+          </button>
         </form>
       </div>
     </div>

@@ -337,3 +337,12 @@ export const deleteTrip = (id: string) => {
     delete mockItineraries[id];
   }
 };
+
+// In store.ts, asigura-te ca ai functia asta exportata:
+export const addItineraryActivity = (tripId: string, dayIndex: number, activity: Activity) => {
+  if (mockItineraries[tripId] && mockItineraries[tripId][dayIndex]) {
+    mockItineraries[tripId][dayIndex].activities.push(activity);
+  } else {
+    console.error("Trip sau zi inexistenta in itinerariu");
+  }
+};

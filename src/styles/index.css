@@ -1,3 +1,11 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+
+html, body, #root {
+  background-color: #030712; /* Asta este culoarea exactă pentru gray-950 */
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow-x: hidden;
+}
