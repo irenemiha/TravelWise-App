@@ -164,6 +164,7 @@ export const mockItineraries: Record<string, ItineraryDay[]> = {
 export const mockItinerary = mockItineraries["1"];
 
 export interface Attraction {
+  location: any;
   id: string;
   name: string;
   description: string;
@@ -193,6 +194,7 @@ export const mockAttractionsData: Record<string, Attraction[]> = {
       votes: { up: 5, down: 1 },
       userVote: "up",
       saved: true,
+      location: "Paris",
     },
     {
       id: "2",
@@ -207,6 +209,7 @@ export const mockAttractionsData: Record<string, Attraction[]> = {
       votes: { up: 4, down: 0 },
       userVote: "up",
       saved: true,
+      location: "Paris",
     }
   ],
   "2": [
@@ -223,6 +226,7 @@ export const mockAttractionsData: Record<string, Attraction[]> = {
       votes: { up: 8, down: 0 },
       userVote: "up",
       saved: true,
+      location: "Santorini",
     },
     {
       id: "4",
@@ -237,6 +241,7 @@ export const mockAttractionsData: Record<string, Attraction[]> = {
       votes: { up: 4, down: 1 },
       userVote: null,
       saved: false,
+      location: "Santorini",
     }
   ],
   "3": [
@@ -253,6 +258,7 @@ export const mockAttractionsData: Record<string, Attraction[]> = {
       votes: { up: 12, down: 0 },
       userVote: "up",
       saved: true,
+      location: "Roma",
     },
     {
       id: "6",
@@ -267,6 +273,7 @@ export const mockAttractionsData: Record<string, Attraction[]> = {
       votes: { up: 9, down: 0 },
       userVote: null,
       saved: false,
+      location: "Roma",
     }
   ]
 };
@@ -344,5 +351,14 @@ export const addItineraryActivity = (tripId: string, dayIndex: number, activity:
     mockItineraries[tripId][dayIndex].activities.push(activity);
   } else {
     console.error("Trip sau zi inexistenta in itinerariu");
+  }
+};
+
+export const toggleAttractionSave = (tripId: string, attractionId: string) => {
+  const cityAttractions = mockAttractionsData[tripId];
+  if (cityAttractions) {
+    mockAttractionsData[tripId] = cityAttractions.map(attr => 
+      attr.id === attractionId ? { ...attr, saved: !attr.saved } : attr
+    );
   }
 };

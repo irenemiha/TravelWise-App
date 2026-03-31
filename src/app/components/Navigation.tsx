@@ -47,11 +47,6 @@ export function Navigation() {
                   </span>
                 )}
               </div>
-
-              {/* <span className="text-[10px] font-bold tracking-wide opacity-90">
-                {item.label}
-              </span>
-               */}
             </Link>
           );
         })}

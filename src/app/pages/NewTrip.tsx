@@ -1,26 +1,42 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router";
-import { X, MapPin, Calendar, Compass, ChevronRight, Users, Check, Mail, Plus } from "lucide-react";
+import { X, MapPin, Calendar, Compass, ChevronRight, Users, Check, Mail, Plus, Search } from "lucide-react";
 import { addTrip } from "../store";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 
+// Listă de orașe (Exemplu extins - în producție poți folosi un JSON extern sau un API)
+const WORLD_CITIES = [
+  "Paris, Franța", "Tokyo, Japonia", "New York, SUA", "Londra, UK", "Roma, Italia", 
+  "București, România", "Cluj-Napoca, România", "Barcelona, Spania", "Dubai, UAE", 
+  "Singapore, Singapore", "Amsterdam, Olanda", "Praga, Cehia", "Viena, Austria", 
+  "Berlin, Germania", "Lisabona, Portugalia", "Istanbul, Turcia", "Atena, Grecia"
+].sort((a, b) => a.localeCompare(b));
+
 const MOCK_FRIENDS = [
-  { id: "f1", name: "Ana", avatar: "https://images.unsplash.com/photo-1651534400411-eaf227f82ee4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbiUyMHdvbWFufGVufDF8fHx8MTc3NDMwMzU4NHww&ixlib=rb-4.1.0&q=80&w=1080" },
-  { id: "f2", name: "Alex", avatar: "https://images.unsplash.com/photo-1635046778483-c190a4bb49c5?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbiUyMG1hbnxlbnwxfHx8fDE3NzQzMDM1ODl8MA&ixlib=rb-4.1.0&q=80&w=1080" },
-  { id: "f3", name: "Maria", avatar: "https://images.unsplash.com/photo-1754844362137-88441eb7cc6f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHNtaWxpbmclMjBnaXJsfGVufDF8fHx8MTc3NDMwMzU5NHww&ixlib=rb-4.1.0&q=80&w=1080" },
-  { id: "f4", name: "Andrei", avatar: "https://images.unsplash.com/photo-1712599982295-1ecff6059a57?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbiUyMG1hbnxlbnwxfHx8fDE3NzQzMDM1ODl8MA&ixlib=rb-4.1.0&q=80&w=1080" }
+  { id: "f1", name: "Ana", avatar: "https://images.unsplash.com/photo-1651534400411-eaf227f82ee4?q=80&w=150" },
+  { id: "f2", name: "Alex", avatar: "https://images.unsplash.com/photo-1635046778483-c190a4bb49c5?q=80&w=150" },
+  { id: "f3", name: "Maria", avatar: "https://images.unsplash.com/photo-1754844362137-88441eb7cc6f?q=80&w=150" },
+  { id: "f4", name: "Andrei", avatar: "https://images.unsplash.com/photo-1712599982295-1ecff6059a57?q=80&w=150" }
 ];
 
 export function NewTrip() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [destination, setDestination] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
-  
   const [emailInput, setEmailInput] = useState("");
   const [invitedEmails, setInvitedEmails] = useState<string[]>([]);
+
+  // Filtrare orașe bazată pe input
+  const filteredCities = useMemo(() => {
+    if (!destination) return [];
+    return WORLD_CITIES.filter(city => 
+      city.toLowerCase().includes(destination.toLowerCase())
+    ).slice(0, 8); // Limităm la primele 8 rezultate pentru UX curat
+  }, [destination]);
 
   const toggleFriend = (id: string) => {
     setSelectedFriends(prev => 
@@ -59,7 +75,7 @@ export function NewTrip() {
       destination,
       dates: formattedDates,
       members: 1 + selectedFriends.length + invitedEmails.length,
-      image: "https://images.unsplash.com/photo-1739315014260-b581f8fdfa7b?auto=format&fit=crop&q=80&w=1080",
+      image: "https://images.unsplash.com/photo-1467269204594-9661b134dd2b?auto=format&fit=crop&q=80&w=1080",
       status: "planning",
       votes: 0,
       attractions: 0,
@@ -71,7 +87,6 @@ export function NewTrip() {
   const isFormValid = name && destination && startDate && endDate;
 
   return (
-    /* Am eliminat min-h-screen pentru ca div-ul sa se opreasca exact unde se termina continutul */
     <div className="bg-gray-50 dark:bg-gray-950 flex flex-col items-center transition-colors duration-300">
       <div className="w-full max-w-md p-6 flex flex-col items-center">
         <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 flex items-center justify-center mb-4">
@@ -92,24 +107,52 @@ export function NewTrip() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ex: Eurotrip 2026..." 
-              className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600"
+              className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
               required
             />
           </div>
 
-          {/* Destinație */}
-          <div className="flex flex-col gap-2">
+          {/* Destinație cu Dropdown de căutare */}
+          <div className="flex flex-col gap-2 relative">
             <label className="text-sm font-bold text-gray-700 dark:text-gray-300 ml-1 flex items-center gap-2">
               <MapPin className="w-4 h-4 text-green-600 dark:text-green-400" /> Destinația Principală
             </label>
-            <input 
-              type="text" 
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="Ex: Paris, Tokyo, Bali..." 
-              className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600"
-              required
-            />
+            <div className="relative group">
+              <input 
+                type="text" 
+                value={destination}
+                onFocus={() => setShowDropdown(true)}
+                onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+                onChange={(e) => {
+                  setDestination(e.target.value);
+                  setShowDropdown(true);
+                }}
+                placeholder="Caută un oraș (ex: Paris, Roma...)" 
+                className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
+                required
+              />
+              <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
+            </div>
+
+            {/* Dropdown Orașe */}
+            {showDropdown && filteredCities.length > 0 && (
+              <div className="absolute top-[calc(100%+4px)] left-0 right-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
+                {filteredCities.map((city) => (
+                  <button
+                    key={city}
+                    type="button"
+                    onClick={() => {
+                      setDestination(city);
+                      setShowDropdown(false);
+                    }}
+                    className="w-full text-left p-4 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200 font-bold transition-colors flex items-center gap-3"
+                  >
+                    <MapPin className="w-4 h-4 text-gray-400" />
+                    {city}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Perioada */}
@@ -124,7 +167,7 @@ export function NewTrip() {
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full bg-transparent font-bold text-gray-900 dark:text-white focus:outline-none dark:color-scheme-dark" 
+                  className="w-full bg-transparent font-bold text-gray-900 dark:text-white focus:outline-none" 
                   required
                 />
               </div>
@@ -135,7 +178,7 @@ export function NewTrip() {
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
                   min={startDate}
-                  className="w-full bg-transparent font-bold text-gray-900 dark:text-white focus:outline-none dark:color-scheme-dark" 
+                  className="w-full bg-transparent font-bold text-gray-900 dark:text-white focus:outline-none" 
                   required
                 />
               </div>
@@ -178,7 +221,7 @@ export function NewTrip() {
             </div>
           </div>
 
-          {/* Email */}
+          {/* Email Invitations */}
           <div className="mt-2 flex flex-col gap-2">
             <label className="text-sm font-bold text-gray-700 dark:text-gray-300 ml-1 flex items-center gap-2">
               <Mail className="w-4 h-4 text-blue-500 dark:text-blue-400" /> Invită prin email
@@ -189,7 +232,7 @@ export function NewTrip() {
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
                 placeholder="Adresă de email..."
-                className="flex-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3 font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm placeholder:text-gray-400 dark:placeholder:text-gray-600"
+                className="flex-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3 font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm"
               />
               <button
                 type="button"
@@ -204,7 +247,7 @@ export function NewTrip() {
             {invitedEmails.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-1">
                 {invitedEmails.map((email) => (
-                  <div key={email} className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[11px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-2 animate-in fade-in transition-colors">
+                  <div key={email} className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[11px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-2">
                     <span>{email}</span>
                     <button type="button" onClick={() => removeEmail(email)} className="text-blue-400 dark:text-blue-500"><X className="w-3 h-3" /></button>
                   </div>
@@ -213,13 +256,12 @@ export function NewTrip() {
             )}
           </div>
 
-          {/* Buton Final - Am eliminat div-ul de wrap cu margini suplimentare */}
           <button 
             type="submit"
             disabled={!isFormValid}
             className={`w-full font-bold p-4 mt-4 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all ${
               isFormValid 
-                ? "bg-blue-600 dark:bg-blue-600 text-white active:scale-95 active:bg-blue-700" 
+                ? "bg-blue-600 text-white active:scale-95 active:bg-blue-700" 
                 : "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed shadow-none"
             }`}
           >
