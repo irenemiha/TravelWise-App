@@ -97,6 +97,15 @@ export function Explore() {
             return pick(["Vedere panoramică uimitoare", "Punct de reper iconic", "Locație turistică majoră"]);
           };
 
+          // LOGICA PENTRU PREȚURI
+          const generatePrice = () => {
+            if (cats.includes("leisure.park") || cats.includes("natural") || cats.includes("tourism.sight")) return "Gratuit";
+            if (cats.includes("entertainment.museum")) return `${Math.floor(Math.random() * 15) + 12} €`;
+            if (cats.includes("heritage")) return `${Math.floor(Math.random() * 10) + 8} €`;
+            if (cats.includes("catering.restaurant")) return `${Math.floor(Math.random() * 20) + 15}-${Math.floor(Math.random() * 40) + 50} €`;
+            return "Gratuit";
+          };
+
           const imgSearchQuery = encodeURIComponent(`${cleanName} ${cityName}`);
           const imageUrl = `https://tse1.mm.bing.net/th?q=${imgSearchQuery}&w=800&h=600&c=7&rs=1&p=0`;
 
@@ -110,7 +119,7 @@ export function Explore() {
             category: category,
             location: cityName,
             duration: category === "Restaurant" ? "1.5h" : "2h",
-            price: "$$",
+            price: generatePrice(), // Prețul generat aici
             saved: false,
             userVote: null
           };
@@ -163,7 +172,6 @@ export function Explore() {
     setIsAddDialogOpen(false);
   };
 
-  // Logica pentru Dialogul de Chat
   const handleOpenChatDialog = (attraction: Attraction) => {
     setSelectedAttraction(attraction);
     setChatFormData({ targetTripId: tripId });
@@ -176,7 +184,7 @@ export function Explore() {
     addChatMessage(chatFormData.targetTripId, {
       id: Date.now().toString(),
       sender: "me",
-      text: `Hei! Am găsit locația asta super: ${selectedAttraction.name} (${selectedAttraction.description}). Ce ziceți, o punem în listă?`,
+      text: `Hei! Am găsit locația asta super: ${selectedAttraction.name} (${selectedAttraction.description}). Preț: ${selectedAttraction.price}. Ce ziceți, o punem în listă?`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       sharedAttractionId: selectedAttraction.id
     });
@@ -203,7 +211,7 @@ export function Explore() {
           <div className="flex flex-col gap-6 w-full items-center">
             <div className="w-full relative">
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input type="text" placeholder="Caută locații reale..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-4 border border-gray-200 dark:border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white dark:bg-gray-900 shadow-sm" />
+              <input type="text" placeholder="Caută locații..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-4 border border-gray-200 dark:border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white dark:bg-gray-900 shadow-sm" />
             </div>
             <div className="flex justify-between w-full px-2">
               {categories.map((cat) => (
@@ -214,7 +222,6 @@ export function Explore() {
             </div>
           </div>
 
-          {/* STATISTICI SUS */}
           <div className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/20 rounded-2xl p-4 my-8 w-full grid grid-cols-3 gap-2 text-center backdrop-blur-sm">
             <div><div className="text-lg font-black text-blue-600 dark:text-blue-400">{attractions.filter(a => a.saved).length}</div><div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Favorite</div></div>
             <div className="border-x border-blue-200 dark:border-blue-800/50"><div className="text-lg font-black text-blue-600 dark:text-blue-400">{attractions.length}</div><div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Locații</div></div>
@@ -223,7 +230,7 @@ export function Explore() {
 
           <div className="flex flex-col gap-8 w-full">
             {isLoading ? (
-              <div className="py-20 flex flex-col items-center gap-4 text-gray-400"><Loader2 className="w-10 h-10 animate-spin text-blue-600" /><p className="font-bold uppercase text-[10px] tracking-widest text-center px-10">Generăm galeria foto...</p></div>
+              <div className="py-20 flex flex-col items-center gap-4 text-gray-400"><Loader2 className="w-10 h-10 animate-spin text-blue-600" /><p className="font-bold uppercase text-[10px] tracking-widest text-center px-10">Sincronizare Atracții...</p></div>
             ) : filteredAttractions.map((attr) => (
               <div key={attr.id} className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-sm overflow-hidden border border-gray-100 dark:border-gray-800 hover:shadow-xl transition-all duration-300">
                 <div className="relative h-64 w-full">
@@ -243,19 +250,23 @@ export function Explore() {
                     </div>
                   </div>
                   
-                  <p className="text-md text-gray-500 dark:text-gray-400 mb-4">{attr.description}</p>
+                  <p className="text-md text-gray-500 dark:text-gray-400 mb-4 font-medium">{attr.description}</p>
                   
                   <div className="flex items-center justify-between gap-6 mb-6">
                     <div className="flex gap-4">
                       <div className="flex flex-col"><span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Durată</span><span className="text-sm font-bold flex items-center gap-1 mt-0.5"><Clock className="w-3.5 h-3.5" />{attr.duration}</span></div>
-                      <div className="flex flex-col"><span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Preț</span><span className="text-sm font-bold flex items-center gap-1 mt-0.5"><DollarSign className="w-3.5 h-3.5" />{attr.price}</span></div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Preț</span>
+                        <span className={`text-sm font-bold flex items-center gap-1 mt-0.5 ${attr.price === 'Gratuit' ? 'text-green-600 dark:text-green-400' : ''}`}>
+                          <DollarSign className="w-3.5 h-3.5" />{attr.price}
+                        </span>
+                      </div>
                     </div>
                     <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(attr.name + " " + cityName)}`} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800 shadow-sm active:scale-90 transition-all">
                       <MapPin className="w-5 h-5 fill-current" />
                     </a>
                   </div>
 
-                  {/* BUTOANE VOT */}
                   <div className="flex gap-2 mb-4">
                     <button onClick={() => handleVote(attr.id, "up")} className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl transition-all font-bold font-mono tracking-tighter ${attr.userVote === "up" ? "bg-green-500 text-white shadow-md shadow-green-200" : "bg-gray-50 dark:bg-gray-800 text-gray-500 hover:bg-green-50"}`}>
                       <ThumbsUp className="w-4 h-4" /> {attr.votes.up}
@@ -279,8 +290,8 @@ export function Explore() {
       {/* DIALOG PLANIFICARE */}
       {isAddDialogOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-sm border border-gray-100 dark:border-gray-800 animate-in zoom-in-95 duration-200 shadow-2xl">
-             <div className="flex justify-between items-start mb-6 text-gray-900 dark:text-white">
+          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-sm border border-gray-100 dark:border-gray-800 animate-in zoom-in-95 duration-200 shadow-2xl text-gray-900 dark:text-white">
+             <div className="flex justify-between items-start mb-6">
                 <div><h3 className="text-xl font-extrabold tracking-tight">Planificare</h3><p className="text-sm text-gray-500 mt-1">{selectedAttraction?.name}</p></div>
                 <button onClick={() => setIsAddDialogOpen(false)} className="p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-all"><X className="w-5 h-5" /></button>
               </div>
@@ -297,11 +308,11 @@ export function Explore() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Ziua</label>
-                    <input type="number" min="1" max="14" value={addFormData.day} onChange={(e) => setAddFormData({...addFormData, day: parseInt(e.target.value) || 1})} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-4 font-bold text-center outline-none text-gray-900 dark:text-white" />
+                    <input type="number" min="1" max="14" value={addFormData.day} onChange={(e) => setAddFormData({...addFormData, day: parseInt(e.target.value) || 1})} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-4 font-bold text-center outline-none" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Ora Start</label>
-                    <input type="time" value={addFormData.time} onChange={(e) => setAddFormData({...addFormData, time: e.target.value})} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-4 font-bold outline-none text-gray-900 dark:text-white" />
+                    <input type="time" value={addFormData.time} onChange={(e) => setAddFormData({...addFormData, time: e.target.value})} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-4 font-bold outline-none" />
                   </div>
                 </div>
               </div>
@@ -316,19 +327,19 @@ export function Explore() {
       {/* DIALOG CHAT */}
       {isChatDialogOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-sm border border-gray-100 dark:border-gray-800 animate-in zoom-in-95 duration-200 shadow-2xl">
-             <div className="flex justify-between items-start mb-6 text-gray-900 dark:text-white">
+          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-sm border border-gray-100 dark:border-gray-800 animate-in zoom-in-95 duration-200 shadow-2xl text-gray-900 dark:text-white">
+             <div className="flex justify-between items-start mb-4">
                 <div><h3 className="text-xl font-extrabold tracking-tight">Trimite pe Chat</h3><p className="text-sm text-gray-500 mt-1">{selectedAttraction?.name}</p></div>
                 <button onClick={() => setIsChatDialogOpen(false)} className="p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-all"><X className="w-5 h-5" /></button>
               </div>
-              <div className="space-y-6 mb-8 text-gray-900 dark:text-white">
+              <div className="space-y-6 mb-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Alege Chat-ul Trip-ului</label>
+                  <label className="text-[12px] uppercase font-black text-gray-400 tracking-widest px-1">Alege Chat-ul Trip-ului</label>
                   <div className="relative">
                     <select 
                       value={chatFormData.targetTripId} 
                       onChange={(e) => setChatFormData({ targetTripId: e.target.value })} 
-                      className="w-full appearance-none bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-blue-600 pr-10 text-gray-900 dark:text-white"
+                      className="w-full mt-2 appearance-none bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-blue-600 pr-10 text-gray-900 dark:text-white"
                     >
                       {matchingTrips.map(t => (<option key={t.id} value={t.id}>{t.name}</option>))}
                     </select>

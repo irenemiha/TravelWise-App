@@ -30,31 +30,53 @@ export function Home() {
     setTripToDelete(null);
   };
 
-  const getStatusBadge = (status: Trip["status"]) => {
+  // --- LOGICĂ CALCUL STATUS DINAMIC (REPARATĂ) ---
+  const calculateTripStatus = (trip: Trip): "planning" | "voting" | "confirmed" => {
+    // Luăm itinerariul sau un array gol dacă este undefined
+    const itinerary = trip.itinerary || [];
+    
+    // Verificăm dacă există cel puțin o activitate adăugată undeva
+    const hasActivities = itinerary.some((day: { activities: string | any[]; }) => day.activities && day.activities.length > 0);
+    
+    // Verificăm dacă sunt voturi
+    const hasVotes = (trip.votes || 0) > 0;
+    
+    // Verificăm dacă fiecare zi din itinerariu are cel puțin o activitate
+    const isItineraryComplete = itinerary.length > 0 && 
+                                itinerary.every((day: { activities: string | any[]; }) => day.activities && day.activities.length > 0);
+
+    if (isItineraryComplete) return "confirmed";
+    if (hasActivities || hasVotes) return "voting";
+    return "planning";
+  };
+
+  const getStatusBadge = (trip: Trip) => {
+    const status = calculateTripStatus(trip);
+    
     switch (status) {
       case "planning":
         return (
-          <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full text-xs font-bold shadow-sm">
+          <div className="flex items-center top-2 bg-blue-600/40 backdrop-blur-md border border-white/20 text-white px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.15em]">
             Planificare
-          </span>
+          </div>
         );
       case "voting":
         return (
-          <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded-full text-xs font-bold shadow-sm">
+          <div className="flex items-center top-2 bg-purple-600/40 backdrop-blur-md border border-white/20 text-white px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.15em]">
             Votare
-          </span>
+          </div>
         );
       case "confirmed":
         return (
-          <span className="px-3 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full text-xs font-bold shadow-sm">
+          <div className="flex items-center top-2 bg-green-600/80 backdrop-blur-md border border-white/20 text-white px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.15em] shadow-lg">
             Confirmat
-          </span>
+          </div>
         );
     }
   };
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-950 p-6 transition-colors duration-300">
+    <div className="bg-gray-50 dark:bg-gray-950 p-6 transition-colors duration-300 min-h-screen">
       <div className="w-full flex flex-col items-center text-center max-w-md mx-auto">
         {/* Header */}
         <div className="w-full flex flex-col items-center mb-8">
@@ -73,12 +95,12 @@ export function Home() {
         <div className="grid grid-cols-2 gap-3 w-full mb-8">
           {[
             { label: "Călătorii", value: trips.length, icon: Calendar, color: "text-blue-500" },
-            { label: "Membri", value: trips.reduce((acc, t) => acc + t.members, 0), icon: Users, color: "text-purple-500" },
+            { label: "Membri", value: trips.reduce((acc, t) => acc + (t.members || 0), 0), icon: Users, color: "text-purple-500" },
             { label: "Locații", value: trips.length, icon: MapPin, color: "text-green-500" },
-            { label: "Voturi", value: trips.reduce((acc, t) => acc + t.votes, 0), icon: TrendingUp, color: "text-orange-500" },
+            { label: "Voturi", value: trips.reduce((acc, t) => acc + (t.votes || 0), 0), icon: TrendingUp, color: "text-orange-500" },
           ].map((stat, idx) => (
-            <div key={idx} className="bg-white dark:bg-gray-900 p-4 rounded-[24px] border border-gray-100 dark:border-gray-800 flex flex-col items-center transition-all">
-              <stat.icon className={`w-5 h-5 ${stat.color} mb-2`} />
+            <div key={idx} className="bg-white dark:bg-gray-900 p-4 rounded-[24px] border border-gray-100 dark:border-gray-800 flex flex-col items-center transition-all shadow-sm">
+              <stat.icon className={`w-5 h-5 ${stat.icon === Calendar ? 'text-blue-500' : stat.icon === Users ? 'text-purple-500' : stat.icon === MapPin ? 'text-green-500' : 'text-orange-500'} mb-2`} />
               <div className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1">{stat.label}</div>
               <div className="text-xl font-bold text-gray-900 dark:text-white">{stat.value}</div>
             </div>
@@ -88,37 +110,37 @@ export function Home() {
         {/* New Trip Button */}
         <Link
           to="/new-trip"
-          className="w-full mb-8 bg-blue-600 dark:bg-blue-600 text-white font-bold px-6 py-4 rounded-2xl active:scale-95 transition-all flex items-center justify-center gap-2 shadow-xl shadow-black-200 dark:shadow-none"
+          className="w-full mb-8 bg-blue-600 dark:bg-blue-600 text-white font-black uppercase text-xs tracking-widest px-6 py-5 rounded-2xl active:scale-95 transition-all flex items-center justify-center gap-2 shadow-xl shadow-blue-500/20"
         >
-          <Plus className="w-5 h-5" />
+          <Plus className="w-5 h-5 stroke-[3]" />
           Creează călătorie nouă
         </Link>
 
         {/* Trips List */}
-        <div className="flex flex-col gap-6 w-full">
+        <div className="flex flex-col gap-6 w-full pb-10">
           {trips.map((trip) => (
             <div
               key={trip.id}
               className="bg-white dark:bg-gray-900 rounded-[32px] shadow-sm overflow-hidden flex flex-col border border-gray-100 dark:border-gray-800 transition-all"
             >
               <Link to={`/trip/${trip.id}`} className="w-full">
-                <div className="relative h-48 w-full overflow-hidden">
+                <div className="relative h-52 w-full overflow-hidden">
                   <ImageWithFallback
                     src={trip.image}
                     alt={trip.destination}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover transition-transform duration-700 hover:scale-110"
                   />
-                  <div className="absolute top-4 left-4">
-                    {getStatusBadge(trip.status)}
+                  <div className="absolute top-5 left-5">
+                    {getStatusBadge(trip)}
                   </div>
                 </div>
                 <div className="p-6 text-center">
-                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                  <h3 className="text-xl font-extrabold text-gray-900 dark:text-white mb-2">
                     {trip.name}
                   </h3>
                   <div className="flex flex-col items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                    <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-blue-500" /> {trip.destination}</span>
-                    <span className="flex items-center gap-1.5"><Calendar className="w-4 h-4 text-purple-500" /> {trip.dates}</span>
+                    <span className="flex items-center gap-1.5 font-medium"><MapPin className="w-4 h-4 text-blue-500" /> {trip.destination}</span>
+                    <span className="flex items-center gap-1.5 font-medium"><Calendar className="w-4 h-4 text-purple-500" /> {trip.dates}</span>
                   </div>
                 </div>
               </Link>
@@ -126,14 +148,14 @@ export function Home() {
               <div className="flex border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30">
                 <Link 
                   to={`/chat/${trip.id}`} 
-                  className="flex-1 py-4 flex items-center justify-center gap-2 text-blue-600 dark:text-blue-400 font-bold text-sm active:bg-blue-50 dark:active:bg-blue-900/20 transition-colors"
+                  className="flex-1 py-5 flex items-center justify-center gap-2 text-blue-600 dark:text-blue-400 font-bold text-xs uppercase tracking-widest active:bg-blue-50 dark:active:bg-gray-800 transition-colors"
                 >
                   <MessageCircle className="w-5 h-5" /> Chat
                 </Link>
                 <div className="w-[1px] bg-gray-100 dark:bg-gray-800" />
                 <button 
                   onClick={(e) => handleDeleteClick(e, trip.id)} 
-                  className="flex-1 py-4 flex items-center justify-center gap-2 text-red-500 dark:text-red-400 font-bold text-sm active:bg-red-50 dark:active:bg-red-900/20 transition-colors"
+                  className="flex-1 py-5 flex items-center justify-center gap-2 text-red-500 dark:text-red-400 font-bold text-xs uppercase tracking-widest active:bg-red-50 dark:active:bg-gray-800 transition-colors"
                 >
                   <Trash2 className="w-5 h-5" /> Șterge
                 </button>

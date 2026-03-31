@@ -211,7 +211,7 @@ export function Itinerary() {
           {itinerary.map((day, dayIndex) => (
             <div key={day.day} className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden w-full flex flex-col items-center border border-transparent dark:border-gray-800">
               {/* Day Header */}
-              <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 w-full flex flex-col items-center text-center relative">
+              <div className="bg-gradient-to-r from-blue-900 to-purple-900 text-white p-6 w-full flex flex-col items-center text-center relative">
                 {currentUserRole === "admin" && (
                   <button onClick={() => handleDeleteDayClick(dayIndex)} className="absolute top-4 right-4 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors active:scale-90">
                     <Trash2 className="w-4 h-4 text-white" />

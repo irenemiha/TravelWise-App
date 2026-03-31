@@ -96,6 +96,7 @@ export function NewTrip() {
       status: "planning",
       votes: 0,
       attractions: 0,
+      itinerary: undefined
     });
 
     navigate("/");

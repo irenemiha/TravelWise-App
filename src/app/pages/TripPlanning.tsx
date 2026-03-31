@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useState, useEffect } from "react";
-import { mockTrips } from "../store";
+import { mockTrips, addChatMessage } from "../store";
 
 interface Member {
   id: string;
@@ -41,6 +41,26 @@ export function TripPlanning() {
   const navigate = useNavigate();
 
   const trip = mockTrips.find(t => t.id === id) || mockTrips[0];
+
+  // --- LOGICĂ CALCUL PROGRES DINAMIC (CU PROTECȚIE LA UNDEFINED) ---
+  
+  // Asigurăm că avem un array de itinerariu, chiar dacă e gol
+  const itinerary = trip.itinerary || [];
+  
+  // 1. Progres Itinerariu (Zile cu activități / Total zile)
+  const totalDays = itinerary.length;
+  const plannedDaysCount = itinerary.filter((day: { activities: string | any[]; }) => day.activities && day.activities.length > 0).length;
+  const itineraryProgress = totalDays > 0 ? Math.round((plannedDaysCount / totalDays) * 100) : 0;
+
+  // 2. Membri au votat
+  const totalMembers = mockMembers.length;
+  const membersVoted = 4; 
+  const votingProgress = Math.round((membersVoted / totalMembers) * 100);
+
+  // 3. Atracții adăugate (Total activități / Target de 20)
+  const totalActivities = itinerary.reduce((acc: any, day: { activities: string | any[]; }) => acc + (day.activities?.length || 0), 0);
+  const attractionTarget = 20;
+  const attractionProgress = Math.min(Math.round((totalActivities / attractionTarget) * 100), 100);
 
   useEffect(() => {
     if (searchParams.get("invite") === "true") {
@@ -186,7 +206,6 @@ export function TripPlanning() {
         </div>
 
         <div className="flex flex-col gap-6 w-full max-w-md items-center">
-          {/* Main Content */}
           <div className="space-y-6 w-full">
             {/* Quick Actions */}
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4 flex flex-col items-center text-center border dark:border-gray-800 transition-colors">
@@ -242,28 +261,28 @@ export function TripPlanning() {
                 <div>
                   <div className="flex justify-between mb-2">
                     <span className="text-sm text-gray-600 dark:text-gray-400 font-bold">Atracții adăugate</span>
-                    <span className="text-sm text-gray-900 dark:text-gray-100 font-bold">15/20</span>
+                    <span className="text-sm text-gray-900 dark:text-gray-100 font-bold">{totalActivities}/{attractionTarget}</span>
                   </div>
                   <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden w-full">
-                    <div className="h-full bg-blue-600 dark:bg-blue-500 rounded-full" style={{ width: "75%" }} />
+                    <div className="h-full bg-blue-600 dark:bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${attractionProgress}%` }} />
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between mb-2">
                     <span className="text-sm text-gray-600 dark:text-gray-400 font-bold">Membri au votat</span>
-                    <span className="text-sm text-gray-900 dark:text-gray-100 font-bold">4/6</span>
+                    <span className="text-sm text-gray-900 dark:text-gray-100 font-bold">{membersVoted}/{totalMembers}</span>
                   </div>
                   <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden w-full">
-                    <div className="h-full bg-purple-600 dark:bg-purple-500 rounded-full" style={{ width: "66%" }} />
+                    <div className="h-full bg-purple-600 dark:bg-purple-500 rounded-full transition-all duration-500" style={{ width: `${votingProgress}%` }} />
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between mb-2">
                     <span className="text-sm text-gray-600 dark:text-gray-400 font-bold">Itinerariu complet</span>
-                    <span className="text-sm text-gray-900 dark:text-gray-100 font-bold">60%</span>
+                    <span className="text-sm text-gray-900 dark:text-gray-100 font-bold">{itineraryProgress}%</span>
                   </div>
                   <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden w-full">
-                    <div className="h-full bg-green-600 dark:bg-green-500 rounded-full" style={{ width: "60%" }} />
+                    <div className="h-full bg-green-600 dark:bg-green-500 rounded-full transition-all duration-500" style={{ width: `${itineraryProgress}%` }} />
                   </div>
                 </div>
               </div>
@@ -301,9 +320,8 @@ export function TripPlanning() {
             </div>
           </div>
 
-          {/* Sidebar Area */}
+          {/* Members Sidebar */}
           <div className="flex flex-col gap-6 w-full items-center">
-            {/* Members */}
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4 w-full flex flex-col items-center border dark:border-gray-800 transition-colors">
               <div className="flex flex-col items-center justify-center mb-4 gap-2 w-full relative">
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white text-center">Membri</h2>
@@ -320,16 +338,12 @@ export function TripPlanning() {
               <div className="space-y-6 w-full flex flex-col items-center">
                 {mockMembers.map((member, index) => {
                   const isAdmin = member.role === "admin";
-                  
                   return (
                     <div key={member.id} className="flex flex-col items-center gap-3 group">
-                      {/* Avatar Container cu Glow pentru Admin */}
                       <div className="relative">
                         {isAdmin && (
-                          // Inelul de Glow din spate
                           <div className="absolute -inset-1 bg-gradient-to-tr from-yellow-400 via-orange-500 to-yellow-600 rounded-full blur-[2px] opacity-70 animate-pulse" />
                         )}
-                        
                         <div
                           className={`w-12 h-12 rounded-full ${getAvatarColor(index)} 
                             flex items-center justify-center text-white flex-shrink-0 font-bold text-sm
@@ -339,16 +353,13 @@ export function TripPlanning() {
                           {getInitials(member.name)}
                         </div>
                       </div>
-
-                      {/* Info Text */}
                       <div className="flex flex-col items-center">
                         <p className="text-gray-900 dark:text-gray-100 text-center font-bold tracking-tight">
                           {member.name}
                         </p>
-                        
                         {isAdmin ? (
                           <div className="flex items-center gap-1 mt-1">
-                            <span className="text-[9px] bg-gradient-to-r from-yellow-500 to-orange-600 bg-clip-text text-transparent font-bold uppercase tracking-[0.1em]">
+                            <span className="text-[9px] bg-gradient-to-r from-yellow-500 to-orange-600 bg-clip-text text-transparent font-bold uppercase tracking-[0.15em]">
                               Administrator
                             </span>
                           </div>
