@@ -4,9 +4,19 @@
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <meta name="referrer" content="no-referrer" />
       <title>TravelWise App</title>
-      <script type="module" crossorigin src="/assets/index-Ci3yREOR.js"></script>
-      <link rel="stylesheet" crossorigin href="/assets/index-DT26DU-w.css">
+      <script>
+        // Verifică dacă există o temă salvată sau preferința sistemului
+        if (localStorage.getItem('theme') === 'dark' || 
+            (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      </script>
+      <script type="module" crossorigin src="/assets/index-DvznQUjS.js"></script>
+      <link rel="stylesheet" crossorigin href="/assets/index-BH81sXZg.css">
     </head>
 
     <body>

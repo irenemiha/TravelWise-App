@@ -283,22 +283,22 @@ export interface Message {
   text: string;
   sender: "me" | "other";
   senderName?: string;
-  time: string;
+  timestamp: string;
   sharedAttractionId?: string;
 }
 
 export const mockMessagesData: Record<string, Message[]> = {
   "1": [
-    { id: "1", text: "Hei, abia aștept să plecăm în Paris!", sender: "other", senderName: "Ana", time: "10:30" },
-    { id: "2", text: "Da, și eu! Ai găsit cazare?", sender: "me", time: "10:32" },
-    { id: "3", text: "Încă mă uit pe Airbnb. Vă trimit linkuri diseară.", sender: "other", senderName: "Alex", time: "10:45" },
+    { id: "1", text: "Hei, abia aștept să plecăm în Paris!", sender: "other", senderName: "Ana", timestamp: "10:30" },
+    { id: "2", text: "Da, și eu! Ai găsit cazare?", sender: "me", timestamp: "10:32" },
+    { id: "3", text: "Încă mă uit pe Airbnb. Vă trimit linkuri diseară.", sender: "other", senderName: "Alex", timestamp: "10:45" },
   ],
   "2": [
-    { id: "1", text: "Salutare! Trebuie să ne hotărâm la activități pentru Santorini.", sender: "other", senderName: "Maria", time: "09:00" },
+    { id: "1", text: "Salutare! Trebuie să ne hotărâm la activități pentru Santorini.", sender: "other", senderName: "Maria", timestamp: "09:00" },
   ],
   "3": [
-    { id: "1", text: "Pizza în prima zi?", sender: "me", time: "12:00" },
-    { id: "2", text: "Clar!", sender: "other", senderName: "Ion", time: "12:05" },
+    { id: "1", text: "Pizza în prima zi?", sender: "me", timestamp: "12:00" },
+    { id: "2", text: "Clar!", sender: "other", senderName: "Ion", timestamp: "12:05" },
   ]
 };
 
