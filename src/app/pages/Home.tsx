@@ -1,16 +1,69 @@
 import { Link } from "react-router";
-import { Plus, Users, Calendar, MapPin, TrendingUp, Compass, Trash2, MessageCircle } from "lucide-react";
+import { Plus, Users, Calendar, MapPin, TrendingUp, Compass, Trash2, MessageCircle, Loader2 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useState, useEffect } from "react";
-import { mockTrips, Trip, deleteTrip } from "../store";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+
+// IMPORTURI FIREBASE
+import { db, auth } from "../../firebase";
+import { collection, query, where, onSnapshot, orderBy, doc, deleteDoc } from "firebase/firestore";
+
+// Definim tipul Trip pentru a se potrivi cu ce salvăm în Firestore
+export interface Trip {
+  id: string;
+  name: string;
+  destination: string;
+  startDate: string;
+  endDate: string;
+  image: string;
+  participants: string[];
+  ownerId: string;
+  votesCount?: number;
+  itinerary?: any[];
+}
 
 export function Home() {
   const [trips, setTrips] = useState<Trip[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tripToDelete, setTripToDelete] = useState<string | null>(null);
 
+  // --- LOGICA DE FETCH REAL-TIME ---
   useEffect(() => {
-    setTrips([...mockTrips]);
+    if (!auth.currentUser) return;
+
+    const q = query(
+      collection(db, "trips"),
+      where("participants", "array-contains", auth.currentUser.uid),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const tripsData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        const tripId = doc.id;
+        
+        // Luăm doar primul nume din destinație (ex: "Paris" din "Paris, Franța")
+        const cityName = (data.destination || 'travel').split(',')[0].trim();
+        
+        // Generăm un număr unic bazat pe ID-ul călătoriei (Seed)
+        const seed = tripId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+
+        return {
+          id: tripId,
+          ...data,
+          // Aceasta este "Poza Fixă": caută orașul și blochează imaginea pe baza ID-ului
+          image: `https://loremflickr.com/1200/800/${encodeURIComponent(cityName)},landscape/all?lock=${seed}`
+        };
+      }) as Trip[];
+      
+      setTrips(tripsData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching trips:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleDeleteClick = (e: React.MouseEvent, id: string) => {
@@ -18,11 +71,14 @@ export function Home() {
     setTripToDelete(id);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (tripToDelete) {
-      deleteTrip(tripToDelete);
-      setTrips([...mockTrips]);
-      setTripToDelete(null);
+      try {
+        await deleteDoc(doc(db, "trips", tripToDelete));
+        setTripToDelete(null);
+      } catch (error) {
+        console.error("Error deleting trip:", error);
+      }
     }
   };
 
@@ -30,20 +86,13 @@ export function Home() {
     setTripToDelete(null);
   };
 
-  // --- LOGICĂ CALCUL STATUS DINAMIC (REPARATĂ) ---
+  // --- LOGICĂ CALCUL STATUS DINAMIC (PĂSTRATĂ) ---
   const calculateTripStatus = (trip: Trip): "planning" | "voting" | "confirmed" => {
-    // Luăm itinerariul sau un array gol dacă este undefined
     const itinerary = trip.itinerary || [];
-    
-    // Verificăm dacă există cel puțin o activitate adăugată undeva
-    const hasActivities = itinerary.some((day: { activities: string | any[]; }) => day.activities && day.activities.length > 0);
-    
-    // Verificăm dacă sunt voturi
-    const hasVotes = (trip.votes || 0) > 0;
-    
-    // Verificăm dacă fiecare zi din itinerariu are cel puțin o activitate
+    const hasActivities = itinerary.some((day: any) => day.activities && day.activities.length > 0);
+    const hasVotes = (trip.votesCount || 0) > 0;
     const isItineraryComplete = itinerary.length > 0 && 
-                                itinerary.every((day: { activities: string | any[]; }) => day.activities && day.activities.length > 0);
+                                itinerary.every((day: any) => day.activities && day.activities.length > 0);
 
     if (isItineraryComplete) return "confirmed";
     if (hasActivities || hasVotes) return "voting";
@@ -52,7 +101,6 @@ export function Home() {
 
   const getStatusBadge = (trip: Trip) => {
     const status = calculateTripStatus(trip);
-    
     switch (status) {
       case "planning":
         return (
@@ -75,8 +123,25 @@ export function Home() {
     }
   };
 
+  // Helper pentru formatarea datei afișate
+  const formatTripDates = (start: string, end: string) => {
+    if (!start || !end) return "Data nespecificată";
+    const s = new Date(start);
+    const e = new Date(end);
+    const months = ["Ian", "Feb", "Mar", "Apr", "Mai", "Iun", "Iul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${s.getDate()} ${months[s.getMonth()]} - ${e.getDate()} ${months[e.getMonth()]} ${e.getFullYear()}`;
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-gray-50 dark:bg-gray-950 p-6 transition-colors duration-300 min-h-screen">
+    <div className="bg-gray-50 dark:bg-gray-950 p-6 transition-colors duration-300">
       <div className="w-full flex flex-col items-center text-center max-w-md mx-auto">
         {/* Header */}
         <div className="w-full flex flex-col items-center mb-8">
@@ -86,7 +151,7 @@ export function Home() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">
             Călătoriile mele
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-md text-gray-500 dark:text-gray-400 mt-1">
             Gestionează aventurile tale și descoperă noi destinații
           </p>
         </div>
@@ -94,13 +159,13 @@ export function Home() {
         {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-3 w-full mb-8">
           {[
-            { label: "Călătorii", value: trips.length, icon: Calendar, color: "text-blue-500" },
-            { label: "Membri", value: trips.reduce((acc, t) => acc + (t.members || 0), 0), icon: Users, color: "text-purple-500" },
-            { label: "Locații", value: trips.length, icon: MapPin, color: "text-green-500" },
-            { label: "Voturi", value: trips.reduce((acc, t) => acc + (t.votes || 0), 0), icon: TrendingUp, color: "text-orange-500" },
+            { label: "Călătorii", value: trips.length, icon: Calendar },
+            { label: "Membri", value: trips.reduce((acc, t) => acc + (t.participants?.length || 0), 0), icon: Users },
+            { label: "Locații", value: Array.from(new Set(trips.map(t => t.destination))).length, icon: MapPin },
+            { label: "Voturi", value: trips.reduce((acc, t) => acc + (t.votesCount || 0), 0), icon: TrendingUp },
           ].map((stat, idx) => (
             <div key={idx} className="bg-white dark:bg-gray-900 p-4 rounded-[24px] border border-gray-100 dark:border-gray-800 flex flex-col items-center transition-all shadow-sm">
-              <stat.icon className={`w-5 h-5 ${stat.icon === Calendar ? 'text-blue-500' : stat.icon === Users ? 'text-purple-500' : stat.icon === MapPin ? 'text-green-500' : 'text-orange-500'} mb-2`} />
+              <stat.icon className={`w-5 h-5 ${idx === 0 ? 'text-blue-500' : idx === 1 ? 'text-purple-500' : idx === 2 ? 'text-green-500' : 'text-orange-500'} mb-2`} />
               <div className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1">{stat.label}</div>
               <div className="text-xl font-bold text-gray-900 dark:text-white">{stat.value}</div>
             </div>
@@ -117,7 +182,10 @@ export function Home() {
         </Link>
 
         {/* Trips List */}
-        <div className="flex flex-col gap-6 w-full pb-10">
+        <div className="flex flex-col gap-6 w-full pb-4">
+          {trips.length === 0 && (
+            <p className="text-gray-400 dark:text-gray-600 text-sm italic">Nu ai nicio călătorie planificată încă.</p>
+          )}
           {trips.map((trip) => (
             <div
               key={trip.id}
@@ -126,7 +194,8 @@ export function Home() {
               <Link to={`/trip/${trip.id}`} className="w-full">
                 <div className="relative h-52 w-full overflow-hidden">
                   <ImageWithFallback
-                    src={trip.image}
+                    // Dacă avem imagine în DB o folosim, dacă nu, cerem una de la Unsplash cu numele destinației
+                    src={trip.image || `https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80&sig=${trip.destination}`}
                     alt={trip.destination}
                     className="w-full h-full object-cover transition-transform duration-700 hover:scale-110"
                   />
@@ -140,7 +209,7 @@ export function Home() {
                   </h3>
                   <div className="flex flex-col items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                     <span className="flex items-center gap-1.5 font-medium"><MapPin className="w-4 h-4 text-blue-500" /> {trip.destination}</span>
-                    <span className="flex items-center gap-1.5 font-medium"><Calendar className="w-4 h-4 text-purple-500" /> {trip.dates}</span>
+                    <span className="flex items-center gap-1.5 font-medium"><Calendar className="w-4 h-4 text-purple-500" /> {formatTripDates(trip.startDate, trip.endDate)}</span>
                   </div>
                 </div>
               </Link>

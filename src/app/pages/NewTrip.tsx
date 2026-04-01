@@ -1,15 +1,13 @@
-import { useState, useMemo, useEffect } from "react";
-import { Link, useNavigate } from "react-router";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router";
 import { X, MapPin, Calendar, Compass, ChevronRight, Users, Check, Mail, Plus, Search, Loader2 } from "lucide-react";
-import { addTrip } from "../store";
-import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+import { toast } from "sonner";
 
-const MOCK_FRIENDS = [
-  { id: "f1", name: "Ana", avatar: "https://images.unsplash.com/photo-1651534400411-eaf227f82ee4?q=80&w=150" },
-  { id: "f2", name: "Alex", avatar: "https://images.unsplash.com/photo-1635046778483-c190a4bb49c5?q=80&w=150" },
-  { id: "f3", name: "Maria", avatar: "https://images.unsplash.com/photo-1754844362137-88441eb7cc6f?q=80&w=150" },
-  { id: "f4", name: "Andrei", avatar: "https://images.unsplash.com/photo-1712599982295-1ecff6059a57?q=80&w=150" }
-];
+// Importăm Firebase
+import { db, auth } from "../../firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+
+import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 
 export function NewTrip() {
   const navigate = useNavigate();
@@ -22,11 +20,11 @@ export function NewTrip() {
   const [emailInput, setEmailInput] = useState("");
   const [invitedEmails, setInvitedEmails] = useState<string[]>([]);
 
-  // State-uri pentru GeoNames
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isCreating, setIsCreating] = useState(false); // State pentru loading buton
 
-  // LOGICA GEONAMES CU DEBOUNCE
+  // LOGICA GEONAMES
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (destination.length < 2) {
@@ -41,17 +39,13 @@ export function NewTrip() {
           `https://secure.geonames.org/searchJSON?q=${encodeURIComponent(destination)}&maxRows=10&username=${USERNAME}&lang=ro&style=full`
         );
         const data = await response.json();
-        
-        if (data.geonames) {
-          setSearchResults(data.geonames);
-        }
+        if (data.geonames) setSearchResults(data.geonames);
       } catch (error) {
         console.error("GeoNames error:", error);
       } finally {
         setIsSearching(false);
       }
     }, 300);
-
     return () => clearTimeout(timer);
   }, [destination]);
 
@@ -73,46 +67,59 @@ export function NewTrip() {
     setInvitedEmails(prev => prev.filter(e => e !== email));
   };
 
-  const handleCreate = (e: React.FormEvent) => {
+  // LOGICA FIREBASE FIRESTORE
+  // În NewTrip.tsx, în handleCreate, modifică obiectul tripData:
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !destination || !startDate || !endDate) return;
+    
+    if (!auth.currentUser) {
+      toast.error("Trebuie să fii logat!");
+      return;
+    }
 
-    const formatDate = (dateString: string) => {
-      const d = new Date(dateString);
-      const months = ["Ian", "Feb", "Mar", "Apr", "Mai", "Iun", "Iul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      return `${d.getDate()} ${months[d.getMonth()]}`;
-    };
+    setIsCreating(true);
 
-    const year = new Date(startDate).getFullYear();
-    const formattedDates = `${formatDate(startDate)} - ${formatDate(endDate)} ${year}`;
+    try {
+      const cityName = destination.split(',')[0].trim();
 
-    addTrip({
-      id: Math.random().toString(36).substring(7),
-      name,
-      destination,
-      dates: formattedDates,
-      members: 1 + selectedFriends.length + invitedEmails.length,
-      image: `https://images.unsplash.com/featured/?${encodeURIComponent(destination.split(',')[0])}`,
-      status: "planning",
-      votes: 0,
-      attractions: 0,
-      itinerary: undefined
-    });
+      const tripData = {
+        name,
+        destination,
+        startDate,
+        endDate,
+        ownerId: auth.currentUser.uid,
+        participants: [auth.currentUser.uid, ...selectedFriends],
+        invitedEmails,
+        // URL NOU ȘI FUNCȚIONAL: Căutăm orașul + cuvântul 'travel'
+        image: "",
+        status: "planning",
+        createdAt: serverTimestamp(),
+        votesCount: 0,
+        attractionsCount: 0
+      };
 
-    navigate("/");
+      await addDoc(collection(db, "trips"), tripData);
+      toast.success("Aventura a fost creată!");
+      navigate("/"); 
+    } catch (error) {
+      console.error("Firestore Error:", error);
+      toast.error("Eroare la salvare.");
+    } finally {
+      setIsCreating(false);
+    }
   };
 
-  const isFormValid = name && destination && startDate && endDate;
+  const isFormValid = name && destination && startDate && endDate && !isCreating;
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-950 flex flex-col items-center transition-colors duration-300 min-h-screen">
+    <div className="bg-gray-50 dark:bg-gray-950 flex flex-col items-center transition-colors duration-300">
       <div className="w-full max-w-md p-6 flex flex-col items-center">
         <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 flex items-center justify-center mb-4">
           <Compass className="w-8 h-8 text-blue-600 dark:text-blue-400" />
         </div>
         
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1 text-center">Planifică o aventură</h2>
-        <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm text-center">Completează detaliile de mai jos.</p>
+        <p className="text-gray-500 dark:text-gray-400 mb-8 text-md text-center">Creează o nouă călătorie și invita prietenii tăi!</p>
         
         <form onSubmit={handleCreate} className="flex flex-col gap-5 w-full">
           {/* Nume */}
@@ -125,8 +132,9 @@ export function NewTrip() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ex: Eurotrip 2026..." 
-              className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
+              className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all disabled:opacity-50"
               required
+              disabled={isCreating}
             />
           </div>
 
@@ -149,8 +157,9 @@ export function NewTrip() {
                   setShowDropdown(true);
                 }}
                 placeholder="Orice oraș sau insulă din lume..." 
-                className={`w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all ${isSearching ? 'pl-10' : ''}`}
+                className={`w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all ${isSearching ? 'pl-10' : ''} disabled:opacity-50`}
                 required
+                disabled={isCreating}
               />
               <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
             </div>
@@ -179,9 +188,6 @@ export function NewTrip() {
                           </span>
                         </div>
                       </div>
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-blue-500 font-black uppercase tracking-tighter">
-                        Selectează
-                      </div>
                     </button>
                   );
                 })}
@@ -201,8 +207,9 @@ export function NewTrip() {
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full bg-transparent font-bold text-gray-900 dark:text-white focus:outline-none" 
+                  className="w-full bg-transparent font-bold text-gray-400 dark:text-white focus:outline-none" 
                   required
+                  disabled={isCreating}
                 />
               </div>
               <div className="flex-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-3 flex flex-col shadow-sm focus-within:ring-2 focus-within:ring-blue-600 transition-all">
@@ -212,46 +219,11 @@ export function NewTrip() {
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
                   min={startDate}
-                  className="w-full bg-transparent font-bold text-gray-900 dark:text-white focus:outline-none" 
+                  className="w-full bg-transparent font-bold text-gray-400 dark:text-white focus:outline-none" 
                   required
+                  disabled={isCreating}
                 />
               </div>
-            </div>
-          </div>
-
-          {/* Prieteni */}
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-bold text-gray-700 dark:text-gray-300 ml-1 flex items-center gap-2">
-              <Users className="w-4 h-4 text-orange-500 dark:text-orange-400" /> Invită prieteni
-            </label>
-            <div className="flex gap-4 overflow-x-auto pb-2 -mx-2 px-2 [&::-webkit-scrollbar]:hidden">
-              {MOCK_FRIENDS.map(friend => {
-                const isSelected = selectedFriends.includes(friend.id);
-                return (
-                  <button
-                    key={friend.id}
-                    type="button"
-                    onClick={() => toggleFriend(friend.id)}
-                    className="flex flex-col items-center gap-2 min-w-[70px] transition-transform active:scale-95"
-                  >
-                    <div className={`relative w-14 h-14 rounded-full p-1 transition-colors ${isSelected ? 'bg-blue-600 dark:bg-blue-500' : 'bg-transparent'}`}>
-                      <ImageWithFallback 
-                        src={friend.avatar} 
-                        alt={friend.name}
-                        className="w-full h-full rounded-full object-cover bg-gray-200 dark:bg-gray-800"
-                      />
-                      {isSelected && (
-                        <div className="absolute -bottom-1 -right-1 bg-blue-600 dark:bg-blue-500 text-white rounded-full p-1 border-2 border-white dark:border-gray-900">
-                          <Check className="w-3 h-3" />
-                        </div>
-                      )}
-                    </div>
-                    <span className={`text-xs font-bold ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}>
-                      {friend.name}
-                    </span>
-                  </button>
-                );
-              })}
             </div>
           </div>
 
@@ -266,28 +238,18 @@ export function NewTrip() {
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
                 placeholder="Adresă de email..."
-                className="flex-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3 font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm"
+                className="flex-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3 font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all text-sm disabled:opacity-50"
+                disabled={isCreating}
               />
               <button
                 type="button"
                 onClick={handleAddEmail}
-                disabled={!emailInput || !emailInput.includes("@")}
+                disabled={!emailInput || !emailInput.includes("@") || isCreating}
                 className="bg-blue-600 text-white p-3 rounded-xl active:scale-95 disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-400 transition-all"
               >
                 <Plus className="w-5 h-5" />
               </button>
             </div>
-            
-            {invitedEmails.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-1">
-                {invitedEmails.map((email) => (
-                  <div key={email} className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[11px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-2">
-                    <span>{email}</span>
-                    <button type="button" onClick={() => removeEmail(email)} className="text-blue-400 dark:text-blue-500"><X className="w-3 h-3" /></button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           <button 
@@ -299,8 +261,8 @@ export function NewTrip() {
                 : "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed shadow-none"
             }`}
           >
-            Creează călătoria
-            <ChevronRight className="w-5 h-5" />
+            {isCreating ? <Loader2 className="w-5 h-5 animate-spin" /> : "Creează călătoria"}
+            {!isCreating && <ChevronRight className="w-5 h-5" />}
           </button>
         </form>
       </div>

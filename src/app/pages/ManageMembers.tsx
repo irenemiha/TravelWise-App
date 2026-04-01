@@ -7,10 +7,24 @@ import {
   MoreVertical, 
   UserCircle,
   Check,
-  Copy
+  Copy,
+  Loader2
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
+
+// IMPORTURI FIREBASE
+import { db, auth } from "../../firebase";
+import { 
+  doc, 
+  onSnapshot, 
+  updateDoc, 
+  arrayRemove, 
+  collection, 
+  query, 
+  where, 
+  getDocs 
+} from "firebase/firestore";
 
 interface Member {
   id: string;
@@ -22,18 +36,52 @@ interface Member {
 export function ManageMembers() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const tripId = id || "";
   
-  const [members, setMembers] = useState<Member[]>([
-    { id: "1", name: "Ana Almajanu", role: "admin", initials: "AA" },
-    { id: "2", name: "Alexandra Burnichi", role: "member", initials: "AB" },
-    { id: "3", name: "Irene Musat", role: "member", initials: "IM" },
-  ]);
+  const [trip, setTrip] = useState<any>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
   const [memberToEdit, setMemberToEdit] = useState<Member | null>(null);
 
-  const inviteLink = `https://travelwise.app/join/trip-${id || '123'}-xyz`;
+  const inviteLink = `${window.location.origin}/trip/${tripId}?invite=true`;
+
+  // 1. ASCULTĂM DATELE CĂLĂTORIEI ȘI MEMBRII
+  useEffect(() => {
+    if (!tripId) return;
+
+    const tripRef = doc(db, "trips", tripId);
+    const unsubscribe = onSnapshot(tripRef, async (snap) => {
+      if (snap.exists()) {
+        const tripData = snap.data();
+        setTrip(tripData);
+
+        // Fetch detalii useri pentru toți participanții
+        if (tripData.participants && tripData.participants.length > 0) {
+          const usersRef = collection(db, "users");
+          const q = query(usersRef, where("uid", "in", tripData.participants));
+          const usersSnap = await getDocs(q);
+          
+          const membersList = usersSnap.docs.map(uDoc => {
+            const userData = uDoc.data();
+            const role = uDoc.id === tripData.ownerId ? "admin" : "member";
+            return {
+              id: uDoc.id,
+              name: userData.name || "Utilizator",
+              role: role as "admin" | "member",
+              initials: (userData.name || "U").split(" ").map((n: string) => n[0]).join("").toUpperCase()
+            };
+          });
+          setMembers(membersList);
+        }
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [tripId]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(inviteLink);
@@ -41,23 +89,47 @@ export function ManageMembers() {
     setShowLinkModal(false);
   };
 
-  const handleChangeRole = (memberId: string, newRole: "admin" | "member") => {
-    setMembers(members.map(m => m.id === memberId ? { ...m, role: newRole } : m));
-    toast.info("Rol actualizat!");
+  // 2. LOGICĂ SCHIMBARE ROL (În Firestore)
+  const handleChangeRole = async (memberId: string, newRole: "admin" | "member") => {
+    if (newRole === "admin") {
+      toast.warning("Momentan, călătoria poate avea un singur proprietar principal.");
+      setMemberToEdit(null);
+      return;
+    }
+    // Aici s-ar putea adăuga logică pentru roluri secundare în Firestore dacă dorești
+    toast.info("Funcția de roluri multiple va fi disponibilă în curând.");
     setMemberToEdit(null);
   };
+
+  // 3. LOGICĂ ELIMINARE MEMBRU
+  const confirmDelete = async () => {
+    if (!memberToDelete || !tripId) return;
+
+    try {
+      const tripRef = doc(db, "trips", tripId);
+      await updateDoc(tripRef, {
+        participants: arrayRemove(memberToDelete.id)
+      });
+      toast.error(`${memberToDelete.name} a fost eliminat din grup.`);
+      setMemberToDelete(null);
+    } catch (error) {
+      toast.error("Eroare la eliminarea membrului.");
+    }
+  };
+
+  if (loading) return <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950"><Loader2 className="animate-spin text-blue-600" /></div>;
 
   return (
     <div className="bg-gray-50 dark:bg-gray-950 font-sans transition-colors duration-300">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 p-4 flex items-center border-b dark:border-gray-800 sticky top-0 z-50 transition-colors">
+      <div className="bg-white dark:bg-gray-900 p-4 flex items-center sticky top-0 z-50 transition-colors">
         <button 
           onClick={() => navigate(-1)} 
           className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
         >
           <ChevronLeft className="w-6 h-6 text-gray-800 dark:text-gray-200" />
         </button>
-        <h1 className="ml-2 text-xl font-bold text-gray-900 dark:text-white font-black uppercase tracking-tight">Membri Grup</h1>
+        <h1 className="ml-2 text-xl font-bold text-gray-900 dark:text-white font-black tracking-tight">Membri Grup</h1>
       </div>
 
       <div className="p-6 max-w-md mx-auto space-y-4">
@@ -93,25 +165,28 @@ export function ManageMembers() {
                 </div>
               </div>
 
-              {/* Zona de Actiuni */}
+              {/* Zona de Actiuni - Vizibilă doar pentru Admin-ul Trip-ului */}
               <div className="flex items-center">
-                <button 
-                  onClick={() => setMemberToEdit(member)}
-                  className="p-2 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl mr-1 transition-colors"
-                >
-                  <MoreVertical className="w-5 h-5" />
-                </button>
-                
-                {member.role !== "admin" ? (
-                  <button 
-                    onClick={() => setMemberToDelete(member)} 
-                    className="p-2 text-red-400 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-colors"
-                  >
-                    <UserMinus className="w-5 h-5" />
-                  </button>
-                ) : (
-                  <div className="w-9" /> 
+                {auth.currentUser?.uid === trip?.ownerId && (
+                  <>
+                    <button 
+                      onClick={() => setMemberToEdit(member)}
+                      className="p-2 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl mr-1 transition-colors"
+                    >
+                      <MoreVertical className="w-5 h-5" />
+                    </button>
+                    
+                    {member.id !== trip?.ownerId && (
+                      <button 
+                        onClick={() => setMemberToDelete(member)} 
+                        className="p-2 text-red-400 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-colors"
+                      >
+                        <UserMinus className="w-5 h-5" />
+                      </button>
+                    )}
+                  </>
                 )}
+                {member.id === trip?.ownerId && auth.currentUser?.uid !== trip?.ownerId && <div className="w-9" />}
               </div>
             </div>
           ))}
@@ -144,7 +219,7 @@ export function ManageMembers() {
         </div>
       )}
 
-      {/* --- MODAL SCHIMBARE ROL (ACTION SHEET) --- */}
+      {/* --- MODAL SCHIMBARE ROL --- */}
       {memberToEdit && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end justify-center z-[60]">
           <div className="bg-white dark:bg-gray-900 rounded-t-[32px] w-full max-w-md p-6 border-t dark:border-gray-800 animate-in slide-in-from-bottom-full duration-300">
@@ -203,8 +278,8 @@ export function ManageMembers() {
             <p className="text-gray-500 dark:text-gray-400 text-sm mb-6 leading-relaxed">Sigur vrei să îl elimini pe <strong>{memberToDelete.name}</strong>?</p>
             <div className="flex flex-col gap-2">
               <button 
-                onClick={() => { setMembers(members.filter(m => m.id !== memberToDelete.id)); setMemberToDelete(null); toast.error("Membru eliminat"); }} 
-                className="w-full py-4 bg-red-500 dark:bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs active:scale-95 transition-all shadow-lg shadow-red-200 dark:shadow-none"
+                onClick={confirmDelete} 
+                className="w-full py-4 bg-red-500 dark:bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs active:scale-95 transition-all shadow-lg"
               >
                 Elimină definitiv
               </button>

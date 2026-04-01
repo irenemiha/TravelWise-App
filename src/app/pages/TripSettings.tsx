@@ -10,23 +10,56 @@ import {
   ShieldCheck,
   UserPlus,
   EyeOff,
-  AlertTriangle
+  AlertTriangle,
+  Loader2
 } from "lucide-react";
 import { toast } from "sonner";
-import { mockTrips } from "../store";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
+// IMPORTURI FIREBASE
+import { db } from "../../firebase";
+import { doc, onSnapshot, deleteDoc } from "firebase/firestore";
 
 export function TripSettings() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [trip, setTrip] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-  const trip = mockTrips.find(t => t.id === id) || { name: "Călătorie" };
+  // 1. ASCULTĂM DATELE CĂLĂTORIEI ÎN TIMP REAL
+  useEffect(() => {
+    if (!id) return;
 
-  const confirmDelete = () => {
-    toast.error(`Călătoria "${trip.name}" a fost ștearsă.`);
-    setIsDeleteModalOpen(false);
-    navigate("/");
+    const tripRef = doc(db, "trips", id);
+    const unsubscribe = onSnapshot(tripRef, (snap) => {
+      if (snap.exists()) {
+        setTrip({ id: snap.id, ...snap.data() });
+      } else {
+        // Dacă documentul a fost șters de altcineva în timp ce erai pe pagină
+        if (!isDeleteModalOpen) {
+          navigate("/");
+        }
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [id, navigate]);
+
+  // 2. LOGICA DE ȘTERGERE REALĂ
+  const confirmDelete = async () => {
+    if (!id) return;
+
+    try {
+      await deleteDoc(doc(db, "trips", id));
+      toast.error(`Călătoria "${trip?.name}" a fost ștearsă definitiv.`);
+      setIsDeleteModalOpen(false);
+      navigate("/");
+    } catch (error) {
+      console.error("Delete error:", error);
+      toast.error("Nu s-a putut șterge călătoria.");
+    }
   };
 
   const SettingItem = ({ icon: Icon, title, subtitle, onClick, color = "text-gray-600" }: any) => (
@@ -47,8 +80,16 @@ export function TripSettings() {
     </button>
   );
 
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-gray-50 dark:bg-gray-950 transition-colors duration-300">
+    <div className="bg-gray-50 dark:bg-gray-950 transition-colors duration-300 min-h-screen">
       {/* Header */}
       <div className="bg-white dark:bg-gray-900 px-4 py-4 flex items-center border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10 transition-colors">
         <button 
@@ -59,7 +100,7 @@ export function TripSettings() {
         </button>
         <div className="ml-2">
           <h1 className="text-xl font-bold text-gray-900 dark:text-white leading-none">Setări Călătorie</h1>
-          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-1">{trip.name}</p>
+          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-1">{trip?.name}</p>
         </div>
       </div>
 
@@ -121,12 +162,12 @@ export function TripSettings() {
             </div>
             <h3 className="text-xl font-bold mb-2 text-gray-900 dark:text-white">Ștergi călătoria?</h3>
             <p className="text-gray-500 dark:text-gray-400 text-sm mb-6 leading-relaxed">
-              Sigur vrei să ștergi <span className="font-bold text-gray-900 dark:text-white">{trip.name}</span>? Toate datele grupului vor fi pierdute definitiv.
+              Sigur vrei să ștergi <span className="font-bold text-gray-900 dark:text-white">{trip?.name}</span>? Toate datele grupului vor fi pierdute definitiv.
             </p>
             <div className="flex flex-col gap-2">
               <button 
                 onClick={confirmDelete} 
-                className="w-full py-4 bg-red-600 dark:bg-red-600 text-white rounded-2xl font-bold shadow-lg shadow-red-200 dark:shadow-none active:scale-95 transition-transform"
+                className="w-full py-4 bg-red-600 dark:bg-red-600 text-white rounded-2xl font-bold shadow-lg active:scale-95 transition-transform"
               >
                 Șterge
               </button>

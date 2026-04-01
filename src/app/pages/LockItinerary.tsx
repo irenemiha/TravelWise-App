@@ -1,37 +1,87 @@
-import { useNavigate } from "react-router";
-import { ChevronLeft, Lock, Unlock } from "lucide-react";
-import { useState } from "react";
+import { useNavigate, useParams } from "react-router";
+import { ChevronLeft, Lock, Unlock, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
+
+// IMPORTURI FIREBASE
+import { db } from "../../firebase";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 
 export function LockItinerary() {
   const navigate = useNavigate();
-  const [isLocked, setIsLocked] = useState(false);
+  const { id } = useParams();
+  const tripId = id || "";
 
-  const handleToggle = () => {
+  const [isLocked, setIsLocked] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // 1. ASCULTĂM STAREA DE BLOCARE DIN FIRESTORE
+  useEffect(() => {
+    if (!tripId) return;
+
+    const tripRef = doc(db, "trips", tripId);
+    const unsubscribe = onSnapshot(tripRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        // Presupunem că field-ul se numește 'isLocked'
+        setIsLocked(data.isLocked ?? false);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [tripId]);
+
+  // 2. LOGICA DE TOGGLE REALĂ
+  const handleToggle = async () => {
+    if (!tripId) return;
+
     const newState = !isLocked;
-    setIsLocked(newState);
-    toast.success(newState ? "Itinerariu blocat cu succes!" : "Itinerariu deblocat!");
+    setIsUpdating(true);
+
+    try {
+      const tripRef = doc(db, "trips", tripId);
+      await updateDoc(tripRef, {
+        isLocked: newState
+      });
+      
+      toast.success(newState ? "Itinerariu blocat cu succes!" : "Itinerariu deblocat pentru editare!");
+    } catch (error) {
+      console.error("Lock toggle error:", error);
+      toast.error("Nu s-a putut schimba starea itinerariului.");
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-gray-50 dark:bg-gray-950 transition-colors duration-300">
+    <div className="bg-gray-50 dark:bg-gray-950 transition-colors duration-300 min-h-screen">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 p-4 flex items-center border-b dark:border-gray-800 sticky top-0 z-10">
+      <div className="bg-white dark:bg-gray-900 p-4 flex items-center border-b dark:border-gray-800 sticky top-0 z-10 transition-colors">
         <button 
           onClick={() => navigate(-1)} 
           className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
         >
           <ChevronLeft className="w-6 h-6 text-gray-900 dark:text-white" />
         </button>
-        <h1 className="ml-2 text-xl font-bold text-gray-900 dark:text-white">Stare Itinerariu</h1>
+        <h1 className="ml-2 text-xl font-bold text-gray-900 dark:text-white transition-colors">Stare Itinerariu</h1>
       </div>
 
       <div className="p-6 flex flex-col items-center text-center max-w-md mx-auto">
         {/* Status Icon Container */}
-        <div className={`p-8 rounded-full mb-6 transition-colors duration-500 ${
+        <div className={`p-8 rounded-full mb-6 transition-all duration-500 transform ${
           isLocked 
-            ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' 
-            : 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
+            ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 scale-110' 
+            : 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 scale-100'
         }`}>
           {isLocked ? <Lock className="w-16 h-16" /> : <Unlock className="w-16 h-16" />}
         </div>
@@ -40,7 +90,7 @@ export function LockItinerary() {
           {isLocked ? "Itinerariu Blocat" : "Itinerariu Deschis"}
         </h2>
         
-        <p className="text-gray-600 dark:text-gray-400 mb-8 transition-colors">
+        <p className="text-gray-600 dark:text-gray-400 mb-8 transition-colors leading-relaxed">
           {isLocked 
             ? "Nimeni nu mai poate adăuga sau vota atracții noi în acest moment." 
             : "Toți membrii pot adăuga, șterge sau vota elemente din planul de călătorie."}
@@ -49,18 +99,23 @@ export function LockItinerary() {
         {/* Toggle Action Button */}
         <button 
           onClick={handleToggle}
-          className={`w-full py-4 rounded-2xl font-bold text-white shadow-lg transition-all active:scale-95 ${
+          disabled={isUpdating}
+          className={`w-full py-4 rounded-2xl font-bold text-white shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${
             isLocked 
               ? 'bg-green-600 dark:bg-green-500 shadow-green-100 dark:shadow-none' 
               : 'bg-red-600 dark:bg-red-500 shadow-red-100 dark:shadow-none'
-          }`}
+          } disabled:opacity-50`}
         >
-          {isLocked ? "Deblochează pentru Editare" : "Blochează Itinerariul"}
+          {isUpdating ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            isLocked ? "Deblochează pentru Editare" : "Blochează Itinerariul"
+          )}
         </button>
         
-        <div className="mt-8 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl border border-amber-100 dark:border-amber-900/30">
-           <p className="text-xs text-amber-800 dark:text-amber-400 font-medium">
-             <strong>Notă:</strong> Chiar și atunci când este blocat, membrii grupului pot vizualiza în continuare programul stabilit.
+        <div className="mt-8 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl border border-amber-100 dark:border-amber-900/30 transition-colors">
+           <p className="text-xs text-amber-800 dark:text-amber-400 font-medium leading-relaxed">
+             <strong>Notă:</strong> Chiar și atunci când este blocat, membrii grupului pot vizualiza în continuare programul stabilit, dar butoanele de editare vor fi dezactivate pentru ei.
            </p>
         </div>
       </div>
