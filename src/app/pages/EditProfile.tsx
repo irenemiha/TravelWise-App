@@ -105,7 +105,7 @@ export function EditProfile() {
   }
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-950 flex flex-col transition-colors duration-300 min-h-screen">
+    <div className="bg-gray-50 dark:bg-gray-950 flex flex-col transition-colors duration-300 pb-24">
       {/* Header */}
       <div className="bg-white dark:bg-gray-900 border-b dark:border-gray-800 sticky top-0 z-10 flex items-center justify-between p-4 shadow-sm transition-colors">
         <button 
@@ -176,19 +176,6 @@ export function EditProfile() {
               placeholder="+40..."
               onChange={(e) => setPhone(e.target.value)}
               className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white"
-            />
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-bold text-gray-700 dark:text-gray-300 ml-1">
-              Despre mine
-            </label>
-            <textarea
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-              placeholder="Bio..."
-              rows={3}
-              className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-bold text-gray-900 dark:text-white resize-none"
             />
           </div>
 

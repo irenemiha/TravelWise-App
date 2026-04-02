@@ -92,7 +92,7 @@ export function Profile() {
     .toUpperCase() || "U";
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-950 p-6 flex flex-col items-center transition-colors duration-300">
+    <div className="bg-gray-50 dark:bg-gray-950 p-6 flex flex-col items-center transition-colors duration-300 pb-20">
       {/* Header Profile */}
       <div className="w-full max-w-md flex flex-col items-center text-center transition-colors">
         <div className="relative w-24 h-24 rounded-full overflow-hidden mb-4 shadow-lg bg-blue-600 flex items-center justify-center text-white text-3xl font-bold">

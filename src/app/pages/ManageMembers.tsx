@@ -48,6 +48,9 @@ export function ManageMembers() {
 
   const inviteLink = `${window.location.origin}/trip/${tripId}?invite=true`;
 
+  // VERIFICARE ADMIN
+  const isAdmin = auth.currentUser?.uid === trip?.ownerId;
+
   // 1. ASCULTĂM DATELE CĂLĂTORIEI ȘI MEMBRII
   useEffect(() => {
     if (!tripId) return;
@@ -96,7 +99,6 @@ export function ManageMembers() {
       setMemberToEdit(null);
       return;
     }
-    // Aici s-ar putea adăuga logică pentru roluri secundare în Firestore dacă dorești
     toast.info("Funcția de roluri multiple va fi disponibilă în curând.");
     setMemberToEdit(null);
   };
@@ -133,13 +135,15 @@ export function ManageMembers() {
       </div>
 
       <div className="p-6 max-w-md mx-auto space-y-4">
-        {/* Buton Invitatie */}
-        <button 
-          onClick={() => setShowLinkModal(true)}
-          className="w-full py-4 bg-blue-600 dark:bg-blue-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-200 dark:shadow-none active:scale-95 transition-all"
-        >
-          <LinkIcon className="w-5 h-5" /> Invită Membrii
-        </button>
+        {/* Buton Invitatie - VIZIBIL DOAR PENTRU ADMIN */}
+        {isAdmin && (
+          <button 
+            onClick={() => setShowLinkModal(true)}
+            className="w-full py-4 bg-blue-600 dark:bg-blue-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-200 dark:shadow-none active:scale-95 transition-all"
+          >
+            <LinkIcon className="w-5 h-5" /> Invită Membrii
+          </button>
+        )}
 
         {/* Lista Membri */}
         <div className="bg-white dark:bg-gray-900 rounded-[32px] shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden transition-colors">
@@ -193,7 +197,7 @@ export function ManageMembers() {
         </div>
       </div>
 
-      {/* --- MODAL INVITATIE PRIN LINK --- */}
+      {/* --- MODALELE RĂMÂN NESCHIMBATE --- */}
       {showLinkModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
           <div className="bg-white dark:bg-gray-900 rounded-[32px] p-6 w-full max-w-sm border dark:border-gray-800 animate-in zoom-in duration-200">
@@ -219,7 +223,6 @@ export function ManageMembers() {
         </div>
       )}
 
-      {/* --- MODAL SCHIMBARE ROL --- */}
       {memberToEdit && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end justify-center z-[60]">
           <div className="bg-white dark:bg-gray-900 rounded-t-[32px] w-full max-w-md p-6 border-t dark:border-gray-800 animate-in slide-in-from-bottom-full duration-300">
@@ -237,7 +240,7 @@ export function ManageMembers() {
                 <div className="flex items-center gap-3 text-left">
                   <Shield className={memberToEdit.role === 'admin' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-600'} />
                   <div>
-                    <p className={`font-bold text-sm ${memberToEdit.role === 'admin' ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'}`}>Administrator Călătorie</p>
+                    <p className={`font-bold text-sm ${memberToEdit.role === 'admin' ? 'text-gray-900 dark:white' : 'text-gray-600 dark:text-gray-400'}`}>Administrator Călătorie</p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-500">Control deplin asupra grupului.</p>
                   </div>
                 </div>
@@ -255,7 +258,7 @@ export function ManageMembers() {
                 <div className="flex items-center gap-3 text-left">
                   <UserCircle className={memberToEdit.role === 'member' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-600'} />
                   <div>
-                    <p className={`font-bold text-sm ${memberToEdit.role === 'member' ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'}`}>Membru Grup</p>
+                    <p className={`font-bold text-sm ${memberToEdit.role === 'member' ? 'text-gray-900 dark:white' : 'text-gray-600 dark:text-gray-400'}`}>Membru Grup</p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-500">Poate vota și adăuga idei.</p>
                   </div>
                 </div>
@@ -267,7 +270,6 @@ export function ManageMembers() {
         </div>
       )}
 
-      {/* --- MODAL STERGERE --- */}
       {memberToDelete && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 z-[70]">
           <div className="bg-white dark:bg-gray-900 rounded-[32px] p-6 w-full max-w-xs text-center shadow-2xl border dark:border-gray-800 animate-in zoom-in duration-200">

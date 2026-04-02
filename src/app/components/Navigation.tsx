@@ -41,8 +41,8 @@ export function Navigation() {
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-r from-blue-950 via-purple-950 to-fuchsia-950 border-t border-white/10 pb-safe shadow-[0_-8px_30px_rgba(0,0,0,0.4)] transition-colors">
-      <div className="flex justify-between items-center h-18 max-w-md mx-auto px-6">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-r from-blue-950 via-purple-900 to-fuchsia-950 border-t border-white/10 pb-safe shadow-[0_-8px_30px_rgba(0,0,0,0.4)] transition-colors">
+      <div className="flex justify-between items-center h-16 max-w-md mx-auto px-6">
         {NAV_ITEMS.map((item) => {
           // Logica de Active îmbunătățită:
           // Dacă e "/" trebuie să fie fix "/", altfel verificăm dacă path-ul începe cu ruta respectivă

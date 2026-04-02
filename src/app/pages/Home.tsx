@@ -141,7 +141,7 @@ export function Home() {
   }
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-950 p-6 transition-colors duration-300">
+    <div className="bg-gray-50 dark:bg-gray-950 p-6 transition-colors duration-300 pb-20">
       <div className="w-full flex flex-col items-center text-center max-w-md mx-auto">
         {/* Header */}
         <div className="w-full flex flex-col items-center mb-8">

@@ -23,7 +23,7 @@ import {
   Send
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // IMPORTURI FIREBASE
 import { db, auth } from "../../firebase";
@@ -68,12 +68,19 @@ export function Explore() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  
+  // Stocăm ID-urile salvate de utilizator din Firestore
+  const [userSavedIds, setUserSavedIds] = useState<string[]>([]);
 
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
   const [selectedAttraction, setSelectedAttraction] = useState<Attraction | null>(null);
 
   const [votesData, setVotesData] = useState<{[key: string]: any}>({});
+  
+  // --- LOGICĂ NOUĂ: CONTROL DROPDOWN CĂUTARE ---
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
 
   const [addFormData, setAddFormData] = useState({
     targetTripId: tripId,
@@ -99,26 +106,42 @@ export function Explore() {
     const seed = getDeterministicSeed(id);
     const factor = (seed % 100) / 100;
     switch (category) {
-      case "Restaurant": return `${Math.floor(15 + factor * 25)}-${Math.floor(45 + factor * 50)} €`;
-      case "Muzeu": return `${Math.floor(10 + factor * 10)}-${Math.floor(22 + factor * 15)} €`;
+      case "Restaurante": return `${Math.floor(15 + factor * 25)}-${Math.floor(45 + factor * 50)} €`;
+      case "Muzee": return `${Math.floor(10 + factor * 10)}-${Math.floor(22 + factor * 15)} €`;
       case "Istoric": return (seed % 3 === 0) ? "Gratuit" : `${Math.floor(8 + factor * 12)} €`;
-      case "Atracție": return `${Math.floor(12 + factor * 15)}-${Math.floor(30 + factor * 30)} €`;
+      case "Atracții": return `${Math.floor(12 + factor * 15)}-${Math.floor(30 + factor * 30)} €`;
       default: return "Gratuit";
     }
   };
 
-  // 1. FETCH DATE TRIP
+  // 1. FETCH DATE TRIP ȘI LISTA DE SALVATE A USERULUI
   useEffect(() => {
     if (!auth.currentUser) return;
+
+    // Ascultăm datele tripului curent
     const tripRef = doc(db, "trips", tripId);
     const unsubTrip = onSnapshot(tripRef, (snap) => {
       if (snap.exists()) setTrip({ id: snap.id, ...snap.data() });
     });
+
+    // Ascultăm toate tripurile userului (pentru dropdown-ul de adăugare)
     const q = query(collection(db, "trips"), where("participants", "array-contains", auth.currentUser.uid));
     getDocs(q).then(snap => {
       setMyTrips(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-    return () => unsubTrip();
+
+    // ASCULTĂM PROFILE USER (pentru favorite)
+    const userRef = doc(db, "users", auth.currentUser.uid);
+    const unsubUser = onSnapshot(userRef, (snap) => {
+      if (snap.exists()) {
+        setUserSavedIds(snap.data().savedAttractions || []);
+      }
+    });
+
+    return () => {
+      unsubTrip();
+      unsubUser();
+    };
   }, [tripId]);
 
   // 2. ASCULTĂ VOTURILE REALE
@@ -133,71 +156,125 @@ export function Explore() {
     return () => unsubVotes();
   }, [tripId]);
 
-  // 3. LOGICA GEOAPIFY
+  // 3. LOGICA GEOAPIFY CU PERSISTENȚĂ (localStorage)
   useEffect(() => {
     if (!trip?.destination) return;
     const cityName = trip.destination.split(",")[0].trim();
+    const cacheKey = `explore_cache_${cityName}`; // Cheie unică pentru fiecare oraș
+
     const fetchPlaces = async () => {
+      // 1. Încercăm să luăm datele din localStorage
+      const savedCache = localStorage.getItem(cacheKey);
+      
+      if (savedCache) {
+        console.log(`⚡ Încarc ${cityName} din memoria locală...`);
+        const parsedData = JSON.parse(savedCache);
+        
+        // Sincronizăm inimioarele cu ce avem în Firestore chiar dacă datele vin din cache
+        const syncedWithHearts = parsedData.map((attr: Attraction) => ({
+          ...attr,
+          saved: userSavedIds.includes(attr.id)
+        }));
+        
+        setAttractions(syncedWithHearts);
+        setIsLoading(false);
+        return; // Oprim execuția aici, nu mai apelăm API-ul deloc
+      }
+
+      // 2. Dacă NU există în cache, facem fetch-ul normal
       setIsLoading(true);
       try {
         const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityName)}&limit=1`);
         const geoData = await geoRes.json();
         if (!geoData || geoData.length === 0) throw new Error("City not found");
         const { lat, lon } = geoData[0];
+        
         const API_KEY = "6627c045fcd14d76b5b547c8f3c54d17";
         const response = await fetch(
           `https://api.geoapify.com/v2/places?categories=tourism.attraction,catering.restaurant,entertainment.museum,heritage&filter=circle:${lon},${lat},15000&limit=50&lang=ro&apiKey=${API_KEY}`
         );
         const data = await response.json();
+        
+        if (!data || !data.features) {
+          setAttractions([]);
+          setIsLoading(false);
+          return;
+        }
+
         const mappedData: Attraction[] = data.features.map((f: any) => {
           const p = f.properties;
           const cats = p.categories || [];
           const attractionId = p.place_id;
-          let category = "Atracție";
-          if (cats.includes("catering.restaurant")) category = "Restaurant";
-          else if (cats.includes("entertainment.museum")) category = "Muzeu";
+          let category = "Atracții";
+          if (cats.includes("catering.restaurant")) category = "Restaurante";
+          else if (cats.includes("entertainment.museum")) category = "Muzee";
           else if (cats.includes("heritage")) category = "Istoric";
           const cleanName = (p.name || "Punct turistic").split(/[($]/)[0].trim();
+          
           return {
             id: attractionId,
             name: cleanName,
             description: "Descoperă această locație superbă în " + cityName,
-            image: `https://tse1.mm.bing.net/th?q=${encodeURIComponent(cleanName + " " + cityName)}&w=800&h=600&c=1`, 
+            image: `https://tse1.mm.bing.net/th?q=${encodeURIComponent(cleanName + " " + cityName)}&w=400&h=200&c=1`, 
             rating: parseFloat((4.2 + ((getDeterministicSeed(attractionId) % 8) / 10)).toFixed(1)),
             votes: { up: 0, down: 0 },
             category: category,
             location: cityName,
             duration: category === "Restaurant" ? "1.5h" : "2h",
             price: generateDeterministicPrice(attractionId, category),
-            saved: false,
+            saved: userSavedIds.includes(attractionId),
             userVote: null
           };
         });
-        setAttractions(mappedData);
-      } catch (error) { console.error("Explore error:", error); } 
-      finally { setIsLoading(false); }
-    };
-    fetchPlaces();
-  }, [trip?.destination]);
 
-  // --- LOGICA NOUĂ: SCROLL LA ATRACȚIE DIN CHAT ---
+        // 3. SALVĂM PERMANENT ÎN LOCAL STORAGE
+        localStorage.setItem(cacheKey, JSON.stringify(mappedData));
+        setAttractions(mappedData);
+
+      } catch (error) { 
+        console.error("Explore error:", error); 
+      } finally { 
+        setIsLoading(false); 
+      }
+    };
+
+    fetchPlaces();
+  }, [trip?.destination]); // Se declanșează doar la schimbarea orașului
+
+  // 4. LOGICA SCROLL LA ATRACȚIE
+  const scrollToLocation = (targetId: string) => {
+    const element = document.getElementById(targetId);
+    if (element) {
+      setSearchQuery(""); // Opțional: resetăm căutarea după selectare
+      setIsDropdownOpen(false);
+      setTimeout(() => {
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+        element.classList.add("ring-4", "ring-blue-500", "ring-offset-4", "dark:ring-offset-gray-950");
+        setTimeout(() => element.classList.remove("ring-4", "ring-blue-500"), 3000);
+      }, 100);
+    }
+  };
+
   useEffect(() => {
     if (!isLoading && attractions.length > 0) {
       const hash = window.location.hash;
       if (hash) {
         const targetId = hash.replace("#", "");
-        const element = document.getElementById(targetId);
-        if (element) {
-          setTimeout(() => {
-            element.scrollIntoView({ behavior: "smooth", block: "center" });
-            // Efect vizual scurt pentru a evidenția cardul
-            element.classList.add("ring-4", "ring-blue-500", "ring-offset-4", "dark:ring-offset-gray-950");
-            setTimeout(() => element.classList.remove("ring-4", "ring-blue-500"), 3000);
-          }, 800);
-        }
+        scrollToLocation(targetId);
       }
     }
   }, [isLoading, attractions]);
+
+  // Închidere dropdown la click în exterior
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleVote = async (attractionId: string, type: "up" | "down") => {
     if (!auth.currentUser || !tripId) return;
@@ -237,7 +314,6 @@ export function Explore() {
     } catch (e) { toast.error("Eroare salvare."); }
   };
 
-  // --- MODIFICARE: TRIMITE POZA ȘI NUMELE PE CHAT ---
   const handleConfirmSendToChat = async () => {
     if (!selectedAttraction || !auth.currentUser) return;
     try {
@@ -259,10 +335,20 @@ export function Explore() {
   const toggleSave = async (id: string) => {
     if (!auth.currentUser) return;
     const userRef = doc(db, "users", auth.currentUser.uid);
-    const isCurrentlySaved = attractions.find(a => a.id === id)?.saved;
-    setAttractions(prev => prev.map(a => a.id === id ? { ...a, saved: !a.saved } : a));
-    try { await updateDoc(userRef, { savedAttractions: isCurrentlySaved ? arrayRemove(id) : arrayUnion(id) }); } 
-    catch (e) { console.error("Save error:", e); }
+    const isCurrentlySaved = userSavedIds.includes(id);
+
+    try {
+      if (isCurrentlySaved) {
+        await updateDoc(userRef, { savedAttractions: arrayRemove(id) });
+        toast.info("Eliminat din favorite");
+      } else {
+        await updateDoc(userRef, { savedAttractions: arrayUnion(id) });
+        toast.success("Salvat la favorite!");
+      }
+    } catch (e) { 
+      console.error("Save error:", e); 
+      toast.error("Eroare la salvare.");
+    }
   };
 
   const handleOpenAddDialog = (attraction: Attraction) => {
@@ -277,13 +363,19 @@ export function Explore() {
     setIsChatDialogOpen(true);
   };
 
-  const categories = ["all", "Restaurant", "Muzeu", "Istoric", "Atracție"];
+  const categories = ["all", "Restaurante", "Muzee", "Istoric", "Atracții"];
+  
+  // Sugestii pentru dropdown (filtrare bazată pe ce este deja încărcat)
+  const searchSuggestions = searchQuery.length > 0 
+    ? attractions.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 5)
+    : [];
+
   const filteredAttractions = attractions.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase()) && (selectedCategory === "all" || a.category === selectedCategory));
 
   if (!trip) return <div className="h-screen flex items-center justify-center dark:bg-gray-950"><Loader2 className="animate-spin text-blue-600" /></div>;
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-950 transition-colors duration-300 min-h-screen text-gray-900 dark:text-white pb-20">
+    <div className="bg-gray-50 dark:bg-gray-950 transition-colors duration-300 text-gray-900 dark:text-white pb-20">
       <header className="sticky top-0 z-50 w-full bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-md mx-auto h-16 flex items-center px-6 gap-4">
           <Link to={`/trip/${tripId}`} className="text-gray-500 hover:text-gray-900 dark:text-gray-400 active:scale-90 transition-all"><ArrowLeft className="w-6 h-6 stroke-[2.5]" /></Link>
@@ -294,21 +386,66 @@ export function Explore() {
       <div className="p-6 flex flex-col items-center">
         <div className="w-full max-w-md">
           <div className="flex flex-col gap-6 w-full items-center">
-            <div className="w-full relative">
+            {/* SEARCH AREA WITH DROPDOWN */}
+            <div className="w-full relative" ref={searchRef}>
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input type="text" placeholder="Caută locații..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-4 border border-gray-200 dark:border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white dark:bg-gray-900 shadow-sm" />
+              <input 
+                type="text" 
+                placeholder="Caută locații..." 
+                value={searchQuery} 
+                onFocus={() => setIsDropdownOpen(true)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setIsDropdownOpen(true);
+                }} 
+                className="w-full pl-12 pr-4 py-4 border border-gray-200 dark:border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white dark:bg-gray-900 shadow-sm transition-all" 
+              />
+              
+              {/* DROPDOWN RESULTS */}
+              {isDropdownOpen && searchSuggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl shadow-xl z-[60] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="p-2 flex flex-col">
+                    {searchSuggestions.map((suggestion) => (
+                      <button
+                        key={suggestion.id}
+                        onClick={() => scrollToLocation(suggestion.id)}
+                        className="flex items-center gap-3 p-3 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-colors text-left group"
+                      >
+                        <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0">
+                          <img src={suggestion.image} alt={suggestion.name} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold truncate group-hover:text-blue-600 dark:group-hover:text-blue-400">{suggestion.name}</p>
+                          <p className="text-[10px] uppercase font-black text-gray-400 tracking-widest">{suggestion.category}</p>
+                        </div>
+                        <ChevronDown className="w-4 h-4 text-gray-300 -rotate-90" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="flex justify-between w-full px-2">
+            
+            {/* CATEGORY SELECTOR WITH LABELS AND HORIZONTAL SCROLL */}
+            <div className="flex w-full justify-between gap-4 overflow-x-auto py-2 px-1 scrollbar-hide no-scrollbar">
               {categories.map((cat) => (
-                <button key={cat} onClick={() => setSelectedCategory(cat)} className={`w-12 h-12 flex items-center justify-center rounded-full transition-all duration-300 active:scale-90 ${selectedCategory === cat ? "bg-blue-600 text-white scale-110" : "bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 text-gray-400 shadow-sm"}`}>
-                  {cat === "all" ? <LayoutGrid className="w-5 h-5" /> : cat === "Restaurant" ? <Utensils className="w-5 h-5" /> : cat === "Muzeu" ? <Library className="w-5 h-5" /> : cat === "Istoric" ? <History className="w-5 h-5" /> : <Palmtree className="w-5 h-5" />}
-                </button>
+                <div key={cat} className="flex flex-col items-center gap-2 shrink-0">
+                  <button 
+                    onClick={() => setSelectedCategory(cat)} 
+                    className={`w-12 h-12 flex items-center justify-center rounded-full transition-all duration-300 active:scale-90 ${selectedCategory === cat ? "bg-blue-600 text-white scale-110 shadow-lg shadow-blue-200 dark:shadow-none" : "bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 text-gray-400 shadow-sm"}`}
+                  >
+                    {cat === "all" ? <LayoutGrid className="w-5 h-5" /> : cat === "Restaurante" ? <Utensils className="w-5 h-5" /> : cat === "Muzee" ? <Library className="w-5 h-5" /> : cat === "Istoric" ? <History className="w-5 h-5" /> : <Palmtree className="w-5 h-5" />}
+                  </button>
+                  <span className={`text-[10px] font-bold uppercase tracking-tight ${selectedCategory === cat ? "text-blue-600 dark:text-blue-400" : "text-gray-400"}`}>
+                    {cat === "all" ? "Toate" : cat}
+                  </span>
+                </div>
               ))}
             </div>
           </div>
 
           <div className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/20 rounded-2xl p-4 my-8 w-full grid grid-cols-3 gap-2 text-center backdrop-blur-sm">
-            <div><div className="text-lg font-black text-blue-600 dark:text-blue-400">{attractions.filter(a => a.saved).length}</div><div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Favorite</div></div>
+            <div><div className="text-lg font-black text-blue-600 dark:text-blue-400">{userSavedIds.length}</div><div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Favorite</div></div>
             <div className="border-x border-blue-200 dark:border-blue-800/50"><div className="text-lg font-black text-blue-600 dark:text-blue-400">{attractions.length}</div><div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Locații</div></div>
             <div><div className="text-lg font-black text-blue-600 dark:text-blue-400">{filteredAttractions.length}</div><div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Rezultate</div></div>
           </div>
@@ -320,12 +457,11 @@ export function Explore() {
               const persistentVote = votesData[attr.id] || { up: 0, down: 0, voters: {} };
               const userVote = persistentVote.voters?.[auth.currentUser?.uid || ""] || null;
               return (
-              // --- ADAUGAT id={attr.id} PENTRU SCROLL ---
               <div id={attr.id} key={attr.id} className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-sm overflow-hidden border border-gray-100 dark:border-gray-800 hover:shadow-xl transition-all duration-300 scroll-mt-24">
                 <div className="relative h-64 w-full">
                   <ImageWithFallback src={attr.image} alt={attr.name} className="absolute inset-0 w-full h-full object-cover" />
                   <button onClick={() => toggleSave(attr.id)} className="absolute top-4 right-4 w-12 h-12 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md rounded-full flex items-center justify-center shadow-lg active:scale-125 transition-all">
-                    <Heart className={`w-6 h-6 ${attr.saved ? "fill-red-500 text-red-500" : "text-gray-400"}`} />
+                    <Heart className={`w-6 h-6 ${userSavedIds.includes(attr.id) ? "fill-red-500 text-red-500" : "text-gray-400"}`} />
                   </button>
                   <div className="absolute top-6 left-4 bg-black/40 backdrop-blur-md border border-white/20 text-white px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.15em]">{attr.category}</div>
                 </div>
@@ -370,7 +506,7 @@ export function Explore() {
         </div>
       </div>
 
-      {/* DIALOGS... (Păstrate identic) */}
+      {/* DIALOGS */}
       {isAddDialogOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-sm border border-gray-100 dark:border-gray-800 shadow-2xl">

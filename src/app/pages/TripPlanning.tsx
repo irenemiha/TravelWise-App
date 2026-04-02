@@ -47,25 +47,35 @@ export function TripPlanning() {
   const [members, setMembers] = useState<Member[]>([]);
   const [itineraryItems, setItineraryItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [totalAvailableAttractions, setTotalAvailableAttractions] = useState(0); 
 
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [isPendingInvite, setIsPendingInvite] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "member">("member");
   const [votedMembersCount, setVotedMembersCount] = useState(0);
 
-  // 1. ASCULTĂM DATELE CĂLĂTORIEI
+  // 1. ASCULTĂM DATELE CĂLĂTORIEI ȘI VERIFICĂM CACHE-UL INSTANT
   useEffect(() => {
     if (!id) return;
 
     const tripRef = doc(db, "trips", id);
 
-    // 1. LISTENER DATE CĂLĂTORIE ȘI MEMBRI
     const unsubTrip = onSnapshot(tripRef, async (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         const tripId = docSnap.id;
         const cityName = (data.destination || 'travel').split(',')[0].trim();
         
+        // --- LOGICĂ NOUĂ: VERIFICARE CACHE INSTANTANEE ---
+        const cacheKey = `explore_cache_${cityName}`;
+        const savedCache = localStorage.getItem(cacheKey);
+        if (savedCache) {
+          try {
+            const parsedData = JSON.parse(savedCache);
+            setTotalAvailableAttractions(parsedData.length);
+          } catch (e) { console.error("Cache error", e); }
+        }
+
         const seed = tripId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
         const finalImage = `https://loremflickr.com/1200/800/${encodeURIComponent(cityName)},landscape/all?lock=${seed}`;
         
@@ -95,7 +105,6 @@ export function TripPlanning() {
       }
     });
 
-    // 2. LISTENER ITINERARIU
     const itineraryRef = collection(db, "trips", id, "itinerary");
     const unsubItinerary = onSnapshot(itineraryRef, (snapshot) => {
       const items = snapshot.docs.map(d => d.data());
@@ -103,44 +112,68 @@ export function TripPlanning() {
       setLoading(false);
     });
 
-    // 3. NOU: LISTENER VOTURI (PENTRU METRICA DE MEMBRI)
     const votesRef = collection(db, "trips", id, "attractionVotes");
     const unsubVotes = onSnapshot(votesRef, (snapshot) => {
       const uniqueVoters = new Set<string>();
-      
       snapshot.docs.forEach(vDoc => {
         const vData = vDoc.data();
         if (vData.voters) {
-          // Adăugăm toți utilizatorii care au dat up/down la această atracție
           Object.keys(vData.voters).forEach(uid => uniqueVoters.add(uid));
         }
       });
-
       setVotedMembersCount(uniqueVoters.size);
     });
 
     return () => {
       unsubTrip();
       unsubItinerary();
-      unsubVotes(); // Curățăm și noul listener
+      unsubVotes();
     };
   }, [id, navigate]);
 
-  // LOGICĂ PROGRES REALĂ
+  // 2. FETCH DIN API DOAR DACĂ NU EXISTĂ ÎN CACHE
+  useEffect(() => {
+    if (!trip?.destination || totalAvailableAttractions > 0) return;
+    
+    const fetchTotalAttractions = async () => {
+      const cityName = trip.destination.split(",")[0].trim();
+      try {
+        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityName)}&limit=1`);
+        const geoData = await geoRes.json();
+        if (!geoData || geoData.length === 0) return;
+        
+        const { lat, lon } = geoData[0];
+        const API_KEY = "6627c045fcd14d76b5b547c8f3c54d17";
+        const response = await fetch(
+          `https://api.geoapify.com/v2/places?categories=tourism.attraction,catering.restaurant,entertainment.museum,heritage&filter=circle:${lon},${lat},15000&limit=50&lang=ro&apiKey=${API_KEY}`
+        );
+        const data = await response.json();
+        if (data.features) {
+          setTotalAvailableAttractions(data.features.length);
+          // Nu salvăm tot obiectul aici pentru a nu suprascrie logica din Explore, 
+          // dar actualizăm state-ul pentru UI-ul curent.
+        }
+      } catch (error) {
+        console.error("Error fetching total attractions:", error);
+      }
+    };
+
+    fetchTotalAttractions();
+  }, [trip?.destination, totalAvailableAttractions]);
+
+  // LOGICĂ PROGRES ACTUALIZATĂ
   const totalActivities = itineraryItems.length;
-  const attractionTarget = 20;
+  // Fallback-ul de 20 este folosit doar dacă orașul nu a fost niciodată explorat (niciun cache)
+  const attractionTarget = totalAvailableAttractions || 20; 
   const attractionProgress = Math.min(Math.round((totalActivities / attractionTarget) * 100), 100);
   
-  // Calcul zile (bazat pe datele trip-ului)
   const getProgressValues = () => {
     if (!trip) return { itineraryProgress: 0, votingProgress: 40 };
-    // Calcul simplificat: dacă avem peste 5 activități, considerăm itinerariul 50% gata
     const itineraryProgress = Math.min(Math.round((totalActivities / 10) * 100), 100);
-    const votingProgress = 60; // Hardcoded pentru demo sau calculat din voturi real
-    return { itineraryProgress, votingProgress };
+    return { itineraryProgress };
   };
 
-  const { itineraryProgress, votingProgress } = getProgressValues();
+  const { itineraryProgress } = getProgressValues();
 
   useEffect(() => {
     if (searchParams.get("invite") === "true") {
@@ -197,7 +230,7 @@ export function TripPlanning() {
   }
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-950 transition-colors duration-300 min-h-screen">
+    <div className="bg-gray-50 dark:bg-gray-950 transition-colors duration-300 pb-20">
       {/* Invitation Banner */}
       {isPendingInvite && (
         <div className="bg-white dark:bg-gray-900 px-4 py-4 w-full shadow-sm z-10 relative flex flex-col items-center gap-3 border-b border-gray-100 dark:border-gray-800">
@@ -295,29 +328,7 @@ export function TripPlanning() {
 
         <div className="flex flex-col gap-6 w-full max-w-md items-center">
           <div className="space-y-6 w-full">
-            {/* Quick Actions */}
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4 flex flex-col items-center text-center border dark:border-gray-800 transition-colors">
-              <h2 className="text-lg font-bold mb-4 text-gray-900 dark:text-white text-center">Acțiuni rapide</h2>
-              <div className="flex flex-col gap-4 w-full">
-                <Link
-                  to={`/explore/${trip.id}`}
-                  className="p-4 border-2 border-gray-200 dark:border-gray-800 rounded-lg active:scale-95 active:border-blue-600 dark:active:border-blue-500 active:bg-blue-50 dark:active:bg-blue-900/20 transition-all group flex flex-col items-center text-center w-full"
-                >
-                  <MapPin className="w-8 h-8 text-blue-600 dark:text-blue-400 mb-2" />
-                  <h3 className="mb-1 text-gray-900 dark:text-gray-100 font-bold text-center">Explorează atracții</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 text-center">Descoperă obiective turistice</p>
-                </Link>
-                <Link
-                  to={`/explore/${trip.id}`}
-                  className="p-4 border-2 border-gray-200 dark:border-gray-800 rounded-lg active:scale-95 active:border-purple-600 dark:active:border-purple-500 active:bg-purple-50 dark:active:bg-purple-900/20 transition-all group flex flex-col items-center text-center w-full"
-                >
-                  <Users className="w-8 h-8 text-purple-600 dark:text-purple-400 mb-2" />
-                  <h3 className="mb-1 text-gray-900 dark:text-gray-100 font-bold text-center">Votează atracții</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 text-center">Alege preferatele tale</p>
-                </Link>
-              </div>
-            </div>
-
+            
             {/* Progress */}
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6 flex flex-col items-center w-full border dark:border-gray-800 transition-colors">
               <h2 className="text-xl mb-4 text-gray-900 dark:text-white font-bold text-center">Progres planificare</h2>

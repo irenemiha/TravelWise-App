@@ -14,7 +14,7 @@ export function SplashScreen() {
   }, []);
 
   return (
-    <div className="h-screen w-full bg-gradient-to-r from-blue-950 via-purple-950 to-fuchsia-950 flex flex-col items-center justify-center p-8 overflow-hidden">
+    <div className="h-screen w-full bg-gradient-to-r from-blue-950 via-purple-900 to-fuchsia-950 flex flex-col items-center justify-center p-8 overflow-hidden">
       
       {/* Zona Logo-ului - Rămâne centrală */}
       <div className="flex-1 flex flex-col items-center justify-center">
@@ -47,7 +47,7 @@ export function SplashScreen() {
             className="flex flex-col gap-4"
           >
             <button 
-              onClick={() => navigate("/login")} // Trimite la Auth.tsx
+              onClick={() => navigate("/login?mode=signup")} // Trimite la Auth.tsx
               className="w-full bg-white text-blue-600 font-black py-5 rounded-2xl flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all uppercase text-xs tracking-widest"
             >
               <UserPlus className="w-4 h-4" />
@@ -55,7 +55,7 @@ export function SplashScreen() {
             </button>
 
             <button 
-              onClick={() => navigate("/login")}
+              onClick={() => navigate("/login?mode=login")} // Trimite la Auth.tsx
               className="w-full bg-white/10 border border-white/20 text-white font-bold py-5 rounded-2xl backdrop-blur-md active:scale-95 transition-all uppercase text-xs tracking-widest"
             >
               Am deja cont

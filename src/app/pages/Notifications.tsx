@@ -105,7 +105,7 @@ export function Notifications() {
   );
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-950 p-6 flex flex-col items-center transition-colors duration-300 min-h-screen">
+    <div className="bg-gray-50 dark:bg-gray-950 p-6 flex flex-col items-center transition-colors duration-300 pb-20">
       <div className="w-full flex flex-col items-center mb-8">
         <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 flex items-center justify-center mb-4">
           <Bell className="w-8 h-8 text-blue-600 dark:text-blue-400" />
