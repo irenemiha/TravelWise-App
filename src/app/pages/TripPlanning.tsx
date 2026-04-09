@@ -25,7 +25,6 @@ import {
   query, 
   updateDoc, 
   arrayUnion, 
-  arrayRemove, 
   getDocs, 
   where 
 } from "firebase/firestore";
@@ -37,13 +36,17 @@ interface Member {
   role: "admin" | "member";
 }
 
+const getCityPhotoUrl = (cityName: string) => {
+  return `https://tse1.mm.bing.net/th?q=${encodeURIComponent(cityName + " city travel landscape")}&w=1200&h=800&c=1&p=0`;
+};
+
 export function TripPlanning() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  // State-uri pentru date reale
   const [trip, setTrip] = useState<any>(null);
+  const [tripImage, setTripImage] = useState<string>(""); 
   const [members, setMembers] = useState<Member[]>([]);
   const [itineraryItems, setItineraryItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,7 +57,6 @@ export function TripPlanning() {
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "member">("member");
   const [votedMembersCount, setVotedMembersCount] = useState(0);
 
-  // 1. ASCULTĂM DATELE CĂLĂTORIEI ȘI VERIFICĂM CACHE-UL INSTANT
   useEffect(() => {
     if (!id) return;
 
@@ -63,10 +65,14 @@ export function TripPlanning() {
     const unsubTrip = onSnapshot(tripRef, async (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        const tripId = docSnap.id;
         const cityName = (data.destination || 'travel').split(',')[0].trim();
         
-        // --- LOGICĂ NOUĂ: VERIFICARE CACHE INSTANTANEE ---
+        if (data.image && !data.image.includes("loremflickr") && !data.image.includes("picsum.photos") && !data.image.includes("teleport")) {
+          setTripImage(data.image);
+        } else {
+          setTripImage(getCityPhotoUrl(cityName));
+        }
+
         const cacheKey = `explore_cache_${cityName}`;
         const savedCache = localStorage.getItem(cacheKey);
         if (savedCache) {
@@ -76,10 +82,7 @@ export function TripPlanning() {
           } catch (e) { console.error("Cache error", e); }
         }
 
-        const seed = tripId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        const finalImage = `https://loremflickr.com/1200/800/${encodeURIComponent(cityName)},landscape/all?lock=${seed}`;
-        
-        setTrip({ id: docSnap.id, ...data, image: finalImage });
+        setTrip({ id: docSnap.id, ...data });
 
         if (auth.currentUser?.uid === data.ownerId) {
           setCurrentUserRole("admin");
@@ -87,16 +90,39 @@ export function TripPlanning() {
           setCurrentUserRole("member");
         }
 
-        if (data.participants && data.participants.length > 0) {
+        const allParticipantUids = Array.from(new Set([data.ownerId, ...(data.participants || [])]));
+        
+        if (allParticipantUids.length > 0) {
           const usersRef = collection(db, "users");
-          const q = query(usersRef, where("uid", "in", data.participants));
+          const q = query(usersRef, where("uid", "in", allParticipantUids));
           const usersSnap = await getDocs(q);
-          const membersList = usersSnap.docs.map(uDoc => ({
-            id: uDoc.id,
-            name: uDoc.data().name || "Utilizator",
-            avatar: uDoc.data().photoURL || "",
-            role: uDoc.id === data.ownerId ? "admin" : "member" as "admin" | "member"
-          }));
+          
+          const membersList: Member[] = usersSnap.docs.map(uDoc => {
+            const userData = uDoc.data();
+            return {
+              id: userData.uid,
+              name: userData.name || "Utilizator",
+              avatar: userData.photoURL || "",
+              role: userData.uid === data.ownerId ? "admin" : "member"
+            };
+          });
+
+          // --- LOGICĂ ACTUALIZATĂ PENTRU NUMELE ADMINULUI ---
+          allParticipantUids.forEach(uid => {
+            if (!membersList.find(m => m.id === uid)) {
+              // Dacă e adminul, folosim ownerName din călătorie sau displayName-ul curent
+              const adminFallbackName = data.ownerName || (uid === auth.currentUser?.uid ? auth.currentUser?.displayName : "Administrator");
+              
+              membersList.push({
+                id: uid,
+                name: uid === data.ownerId ? adminFallbackName : "Membru în curs...",
+                avatar: "",
+                role: uid === data.ownerId ? "admin" : "member"
+              });
+            }
+          });
+
+          membersList.sort((a, b) => (a.role === 'admin' ? -1 : 1));
           setMembers(membersList);
         }
       } else {
@@ -131,272 +157,132 @@ export function TripPlanning() {
     };
   }, [id, navigate]);
 
-  // 2. FETCH DIN API DOAR DACĂ NU EXISTĂ ÎN CACHE
+  // Restul funcțiilor rămân identice...
   useEffect(() => {
     if (!trip?.destination || totalAvailableAttractions > 0) return;
-    
     const fetchTotalAttractions = async () => {
       const cityName = trip.destination.split(",")[0].trim();
       try {
         const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityName)}&limit=1`);
         const geoData = await geoRes.json();
         if (!geoData || geoData.length === 0) return;
-        
         const { lat, lon } = geoData[0];
         const API_KEY = "6627c045fcd14d76b5b547c8f3c54d17";
-        const response = await fetch(
-          `https://api.geoapify.com/v2/places?categories=tourism.attraction,catering.restaurant,entertainment.museum,heritage&filter=circle:${lon},${lat},15000&limit=50&lang=ro&apiKey=${API_KEY}`
-        );
+        const response = await fetch(`https://api.geoapify.com/v2/places?categories=tourism.attraction,catering.restaurant,entertainment.museum,heritage&filter=circle:${lon},${lat},15000&limit=50&lang=ro&apiKey=${API_KEY}`);
         const data = await response.json();
-        if (data.features) {
-          setTotalAvailableAttractions(data.features.length);
-          // Nu salvăm tot obiectul aici pentru a nu suprascrie logica din Explore, 
-          // dar actualizăm state-ul pentru UI-ul curent.
-        }
-      } catch (error) {
-        console.error("Error fetching total attractions:", error);
-      }
+        if (data.features) setTotalAvailableAttractions(data.features.length);
+      } catch (error) { console.error(error); }
     };
-
     fetchTotalAttractions();
   }, [trip?.destination, totalAvailableAttractions]);
 
-  // LOGICĂ PROGRES ACTUALIZATĂ
   const totalActivities = itineraryItems.length;
-  // Fallback-ul de 20 este folosit doar dacă orașul nu a fost niciodată explorat (niciun cache)
   const attractionTarget = totalAvailableAttractions || 20; 
   const attractionProgress = Math.min(Math.round((totalActivities / attractionTarget) * 100), 100);
-  
-  const getProgressValues = () => {
-    if (!trip) return { itineraryProgress: 0, votingProgress: 40 };
-    const itineraryProgress = Math.min(Math.round((totalActivities / 10) * 100), 100);
-    return { itineraryProgress };
-  };
-
-  const { itineraryProgress } = getProgressValues();
+  const itineraryProgress = Math.min(Math.round((totalActivities / 10) * 100), 100);
 
   useEffect(() => {
-    if (searchParams.get("invite") === "true") {
-      setIsPendingInvite(true);
-    }
+    if (searchParams.get("invite") === "true") setIsPendingInvite(true);
   }, [searchParams]);
 
   const handleAcceptInvite = async () => {
     if (!id || !auth.currentUser) return;
     try {
-      const tripRef = doc(db, "trips", id);
-      await updateDoc(tripRef, {
-        participants: arrayUnion(auth.currentUser.uid)
-      });
+      await updateDoc(doc(db, "trips", id), { participants: arrayUnion(auth.currentUser.uid) });
       setIsPendingInvite(false);
       toast.success("Ai intrat în grup!");
-    } catch (e) {
-      toast.error("Eroare la acceptare.");
-    }
-  };
-
-  const handleRejectInvite = () => {
-    setIsPendingInvite(false);
-    navigate("/");
-    toast.error("Ai respins invitația.");
+    } catch (e) { toast.error("Eroare."); }
   };
 
   const handleShare = () => {
-    const inviteLink = `${window.location.origin}/trip/${id}?invite=true`;
-    navigator.clipboard.writeText(inviteLink);
-    toast.success("Linkul de invitație a fost copiat!");
+    navigator.clipboard.writeText(`${window.location.origin}/trip/${id}?invite=true`);
+    toast.success("Link copiat!");
     setShowInviteModal(false);
   };
 
-  const handleSettings = () => {
-    navigate(`/trip/${id}/trip-settings`);
-  };
+  const getInitials = (name: string) => (name || "U").split(" ").map((n) => n[0]).join("").toUpperCase();
+  const getAvatarColor = (index: number) => ["bg-blue-500", "bg-purple-500", "bg-green-500", "bg-orange-500", "bg-pink-500"][index % 5];
 
-  const getInitials = (name: string) => {
-    return name.split(" ").map((n) => n[0]).join("").toUpperCase();
-  };
-
-  const getAvatarColor = (index: number) => {
-    const colors = ["bg-blue-500", "bg-purple-500", "bg-green-500", "bg-orange-500", "bg-pink-500"];
-    return colors[index % colors.length];
-  };
-
-  if (loading || !trip) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
+  if (loading || !trip) return <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>;
 
   return (
     <div className="bg-gray-50 dark:bg-gray-950 transition-colors duration-300 pb-20">
-      {/* Invitation Banner */}
       {isPendingInvite && (
         <div className="bg-white dark:bg-gray-900 px-4 py-4 w-full shadow-sm z-10 relative flex flex-col items-center gap-3 border-b border-gray-100 dark:border-gray-800">
-          <p className="text-gray-900 dark:text-gray-100 font-bold text-center text-[15px]">
-            Ai fost invitat în această călătorie!
-          </p>
+          <p className="text-gray-900 dark:text-gray-100 font-bold text-center text-[15px]">Ai fost invitat în această călătorie!</p>
           <div className="flex gap-3 w-full max-w-md">
-            <button 
-              onClick={handleAcceptInvite}
-              className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform shadow-md"
-            >
-              <Check className="w-5 h-5" />
-              Acceptă
-            </button>
-            <button 
-              onClick={handleRejectInvite}
-              className="flex-1 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform"
-            >
-              <X className="w-5 h-5" />
-              Respinge
-            </button>
+            <button onClick={handleAcceptInvite} className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 shadow-md"><Check className="w-5 h-5" />Acceptă</button>
+            <button onClick={() => { setIsPendingInvite(false); navigate("/"); }} className="flex-1 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2"><X className="w-5 h-5" />Respinge</button>
           </div>
         </div>
       )}
 
-      {/* Hero Section */}
       <div className="relative h-64 bg-gray-900">
-        <div className="absolute inset-0 opacity-40">
-          <ImageWithFallback
-            src={trip.image}
-            alt={trip.destination}
-            className="w-full h-full object-cover"
-          />
+        <div className="absolute inset-0 opacity-40 flex">
+          <ImageWithFallback src={tripImage || trip.image} alt={trip.destination} className="w-full h-full min-w-full min-h-full object-cover" />
         </div>
         <div className="relative w-full px-4 h-full flex flex-col justify-end pb-6 pt-4 items-center text-center">
           <div className="flex flex-col gap-4 w-full">
             <div className="text-white flex flex-col items-center">
               <h1 className="text-3xl font-bold mb-2 text-center">{trip.name}</h1>
               <div className="flex flex-col gap-2 text-blue-100 dark:text-blue-200 text-sm items-center">
-                <div className="flex items-center gap-2 justify-center">
-                  <MapPin className="w-4 h-4" />
-                  {trip.destination}
-                </div>
-                <div className="flex items-center gap-2 justify-center">
-                  <Calendar className="w-4 h-4" />
-                  {trip.startDate} - {trip.endDate}
-                </div>
-                <div className="flex items-center gap-2 justify-center">
-                  <Users className="w-4 h-4" />
-                  {members.length} membri
-                </div>
+                <div className="flex items-center gap-2 justify-center"><MapPin className="w-4 h-4" />{trip.destination}</div>
+                <div className="flex items-center gap-2 justify-center"><Calendar className="w-4 h-4" />{trip.startDate} - {trip.endDate}</div>
+                <div className="flex items-center gap-2 justify-center"><Users className="w-4 h-4" />{members.length} membri</div>
               </div>
             </div>
             <div className="flex gap-2 justify-center w-full max-w-xs mx-auto">
-              <button 
-                onClick={() => setShowInviteModal(true)}
-                className="bg-white/20 text-white font-bold backdrop-blur-sm px-4 py-2 rounded-xl active:bg-white/30 transition-colors active:scale-95 flex items-center justify-center gap-2 flex-1 shadow-sm"
-              >
-                <Share2 className="w-4 h-4" />
-                <span>Distribuie</span>
-              </button>
-              {currentUserRole === "admin" && (
-                <button 
-                  onClick={handleSettings}
-                  className="bg-white/20 text-white font-bold backdrop-blur-sm px-4 py-2 rounded-xl active:bg-white/30 transition-colors active:scale-95 flex items-center justify-center gap-2 flex-1 shadow-sm"
-                >
-                  <Settings className="w-4 h-4" />
-                  <span>Setări</span>
-                </button>
-              )}
+              <button onClick={() => setShowInviteModal(true)} className="bg-white/20 text-white font-bold backdrop-blur-sm px-4 py-2 rounded-xl active:bg-white/30 transition-colors active:scale-95 flex items-center justify-center gap-2 flex-1 shadow-sm"><Share2 className="w-4 h-4" /><span>Distribuie</span></button>
+              {currentUserRole === "admin" && <button onClick={() => navigate(`/trip/${id}/trip-settings`)} className="bg-white/20 text-white font-bold backdrop-blur-sm px-4 py-2 rounded-xl active:bg-white/30 transition-colors active:scale-95 flex items-center justify-center gap-2 flex-1 shadow-sm"><Settings className="w-4 h-4" /><span>Setări</span></button>}
             </div>
           </div>
         </div>
       </div>
 
       <div className="w-full p-6 flex flex-col items-center">
-        {/* Navigation Tabs */}
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm mb-6 w-full max-w-md p-1.5 flex flex-row gap-1 border dark:border-gray-800 transition-colors">
-          <button className="flex-1 px-2 py-2.5 font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-lg text-center text-[13px] active:scale-95 transition-transform truncate">
-            Prezentare
-          </button>
-          <Link
-            to={`/explore/${trip.id}`}
-            className="flex-1 px-2 py-2.5 font-bold text-gray-600 dark:text-gray-400 active:bg-gray-100 dark:active:bg-gray-800 rounded-lg text-center text-[13px] active:scale-95 transition-transform truncate"
-          >
-            Explorează
-          </Link>
-          <Link
-            to={`/itinerary/${trip.id}`}
-            className="flex-1 px-2 py-2.5 font-bold text-gray-600 dark:text-gray-400 active:bg-gray-100 dark:active:bg-gray-800 rounded-lg text-center text-[13px] active:scale-95 transition-transform truncate"
-          >
-            Itinerariu
-          </Link>
+          <button className="flex-1 px-2 py-2.5 font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-lg text-center text-[13px]">Prezentare</button>
+          <Link to={`/explore/${trip.id}`} className="flex-1 px-2 py-2.5 font-bold text-gray-600 dark:text-gray-400 rounded-lg text-center text-[13px]">Explorează</Link>
+          <Link to={`/itinerary/${trip.id}`} className="flex-1 px-2 py-2.5 font-bold text-gray-600 dark:text-gray-400 rounded-lg text-center text-[13px]">Itinerariu</Link>
         </div>
 
         <div className="flex flex-col gap-6 w-full max-w-md items-center">
           <div className="space-y-6 w-full">
-            
-            {/* Progress */}
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6 flex flex-col items-center w-full border dark:border-gray-800 transition-colors">
               <h2 className="text-xl mb-4 text-gray-900 dark:text-white font-bold text-center">Progres planificare</h2>
               <div className="space-y-4 w-full">
                 <div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm text-gray-600 dark:text-gray-400 font-bold">Atracții adăugate</span>
-                    <span className="text-sm text-gray-900 dark:text-gray-100 font-bold">{totalActivities}/{attractionTarget}</span>
-                  </div>
-                  <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden w-full">
-                    <div className="h-full bg-blue-600 dark:bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${attractionProgress}%` }} />
-                  </div>
+                  <div className="flex justify-between mb-2"><span className="text-sm text-gray-600 dark:text-gray-400 font-bold">Atracții adăugate</span><span className="text-sm text-gray-900 dark:text-gray-100 font-bold">{totalActivities}/{attractionTarget}</span></div>
+                  <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden w-full"><div className="h-full bg-blue-600 dark:bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${attractionProgress}%` }} /></div>
                 </div>
                 <div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm text-gray-600 dark:text-gray-400 font-bold">Membrii care au votat</span>
-                    <span className="text-sm text-gray-900 dark:text-gray-100 font-bold">
-                      {votedMembersCount}/{trip?.participants?.length || 0}
-                    </span>
-                  </div>
-                  <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden w-full">
-                    <div 
-                      className="h-full bg-purple-600 dark:bg-purple-500 rounded-full transition-all duration-500" 
-                      style={{ width: `${Math.min(Math.round((votedMembersCount / (trip?.participants?.length || 1)) * 100), 100)}%` }} 
-                    />
-                  </div>
+                  <div className="flex justify-between mb-2"><span className="text-sm text-gray-600 dark:text-gray-400 font-bold">Membrii care au votat</span><span className="text-sm text-gray-900 dark:text-gray-100 font-bold">{votedMembersCount}/{members.length}</span></div>
+                  <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden w-full"><div className="h-full bg-purple-600 dark:bg-purple-500 rounded-full transition-all duration-500" style={{ width: `${Math.min(Math.round((votedMembersCount / (members.length || 1)) * 100), 100)}%` }} /></div>
                 </div>
                 <div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm text-gray-600 dark:text-gray-400 font-bold">Itinerariu complet</span>
-                    <span className="text-sm text-gray-900 dark:text-gray-100 font-bold">{itineraryProgress}%</span>
-                  </div>
-                  <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden w-full">
-                    <div className="h-full bg-green-600 dark:bg-green-500 rounded-full transition-all duration-500" style={{ width: `${itineraryProgress}%` }} />
-                  </div>
+                  <div className="flex justify-between mb-2"><span className="text-sm text-gray-600 dark:text-gray-400 font-bold">Itinerariu complet</span><span className="text-sm text-gray-900 dark:text-gray-100 font-bold">{itineraryProgress}%</span></div>
+                  <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden w-full"><div className="h-full bg-green-600 dark:bg-green-500 rounded-full transition-all duration-500" style={{ width: `${itineraryProgress}%` }} /></div>
                 </div>
               </div>
             </div>
 
-            {/* Members Section */}
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4 w-full flex flex-col items-center border dark:border-gray-800 transition-colors">
               <div className="flex flex-col items-center justify-center mb-4 gap-2 w-full relative">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white text-center">Membri</h2>
-                {currentUserRole === "admin" && (
-                  <button
-                    onClick={() => setShowInviteModal(true)}
-                    className="text-blue-600 dark:text-blue-400 hover:text-blue-700 font-bold absolute right-0 top-0 p-1"
-                  >
-                    <UserPlus className="w-5 h-5" />
-                  </button>
-                )}
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white text-center">Membri ({members.length})</h2>
+                {currentUserRole === "admin" && <button onClick={() => setShowInviteModal(true)} className="text-blue-600 dark:text-blue-400 absolute right-0 top-0 p-1"><UserPlus className="w-5 h-5" /></button>}
               </div>
               <div className="space-y-6 w-full flex flex-col items-center">
                 {members.map((member, index) => (
                   <div key={member.id} className="flex flex-col items-center gap-3 group">
                     <div className="relative">
-                      {member.role === "admin" && (
-                        <div className="absolute -inset-1 bg-gradient-to-tr from-yellow-400 via-orange-500 to-yellow-600 rounded-full blur-[2px] opacity-70 animate-pulse" />
-                      )}
+                      {member.role === "admin" && <div className="absolute -inset-1 bg-gradient-to-tr from-yellow-400 via-orange-500 to-yellow-600 rounded-full blur-[2px] opacity-70 animate-pulse" />}
                       <div className={`w-12 h-12 rounded-full ${getAvatarColor(index)} flex items-center justify-center text-white font-bold relative z-10 border-2 border-white dark:border-gray-950 transition-transform group-hover:scale-105`}>
                         {getInitials(member.name)}
                       </div>
                     </div>
                     <div className="flex flex-col items-center">
                       <p className="text-gray-900 dark:text-gray-100 font-bold">{member.name}</p>
-                      <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold uppercase tracking-wider">
-                        {member.role === "admin" ? "Administrator" : "Membru Grup"}
-                      </span>
+                      <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold uppercase tracking-wider">{member.role === "admin" ? "Administrator Călătorie" : "Membru Grup"}</span>
                     </div>
                   </div>
                 ))}
@@ -406,28 +292,15 @@ export function TripPlanning() {
         </div>
       </div>
 
-      {/* Invite Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl max-w-md w-full p-6 border dark:border-gray-800 animate-in zoom-in duration-200">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl max-w-md w-full p-6 border dark:border-gray-800">
             <h2 className="text-2xl mb-4 text-gray-900 dark:text-white font-bold">Invită membri</h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">Distribuie acest link cu prietenii tăi:</p>
-            <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg mb-4 break-all text-sm text-gray-700 dark:text-gray-300 font-mono border dark:border-gray-700">
-              {`${window.location.origin}/trip/${id}?invite=true`}
-            </div>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">Distribuie acest link:</p>
+            <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg mb-4 break-all text-sm text-gray-700 dark:text-gray-300 font-mono border dark:border-gray-700">{`${window.location.origin}/trip/${id}?invite=true`}</div>
             <div className="flex gap-3">
-              <button
-                onClick={() => setShowInviteModal(false)}
-                className="flex-1 px-4 py-2 border font-bold border-gray-300 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300"
-              >
-                Închide
-              </button>
-              <button
-                onClick={handleShare}
-                className="flex-1 px-4 py-2 font-bold bg-blue-600 text-white rounded-lg active:scale-95 transition-all shadow-md"
-              >
-                Copiază link
-              </button>
+              <button onClick={() => setShowInviteModal(false)} className="flex-1 px-4 py-2 border font-bold border-gray-300 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300">Închide</button>
+              <button onClick={handleShare} className="flex-1 px-4 py-2 font-bold bg-blue-600 text-white rounded-lg shadow-md">Copiază link</button>
             </div>
           </div>
         </div>

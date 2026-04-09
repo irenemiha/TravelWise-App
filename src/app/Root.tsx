@@ -1,24 +1,43 @@
 import { useEffect, useState } from "react";
-import { Outlet, useLocation } from "react-router";
+import { Outlet, useLocation, useNavigate } from "react-router"; // Am adăugat useNavigate
 import { auth } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { SplashScreen } from "./components/SplashScreen";
-import { Navigation } from "./components/Navigation"; // Asigură-te că importul e corect
-import { Loader2, Compass } from "lucide-react";
+import { Navigation } from "./components/Navigation";
+import { Compass } from "lucide-react";
 
 export function Root() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const location = useLocation();
+  const navigate = useNavigate(); // Hook pentru navigare
   const isChatPage = location.pathname.startsWith("/chat");
 
   useEffect(() => {
+    // 1. SALVARE LINK INVITAȚIE (Pentru useri ne-logați)
+    // Dacă detectăm un link de trip cu invite, îl punem în "memorie"
+    if (location.pathname.includes("/trip/") && location.search.includes("invite=true")) {
+      localStorage.setItem("redirectAfterLogin", location.pathname + location.search);
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      
+      // 2. REDIRECȚIONARE DUPĂ LOGIN
+      // Dacă tocmai s-a logat și avem un link salvat în memorie
+      if (currentUser) {
+        const redirectTo = localStorage.getItem("redirectAfterLogin");
+        if (redirectTo) {
+          localStorage.removeItem("redirectAfterLogin"); // Ștergem din memorie să nu se repete
+          navigate(redirectTo); // Îl trimitem direct la pagina de invitație
+        }
+      }
+      
       setLoading(false);
     });
+
     return () => unsubscribe();
-  }, []);
+  }, [navigate]); // Adăugăm navigate la dependențe
 
   if (loading) {
     return (
@@ -28,12 +47,12 @@ export function Root() {
     );
   }
 
-  // 1. DACĂ NU E LOGAT: Arătăm doar Splash-ul (Fără Navbar)
+  // 1. DACĂ NU E LOGAT: Arătăm doar Splash-ul
   if (!user) {
     return <SplashScreen />;
   }
 
-  // 2. DACĂ E LOGAT: Arătăm Navbar-ul ȘI restul paginilor (Outlet)
+  // 2. DACĂ E LOGAT: Arătăm conținutul
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 transition-colors">
       <main>

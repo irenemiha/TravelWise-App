@@ -50,12 +50,23 @@ export function TripChat() {
     const unsubTrip = onSnapshot(tripRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        // Generăm URL-ul pozei de profil a grupului (aceeași logică ca în Home)
         const cityName = (data.destination || 'travel').split(',')[0].trim();
-        const seed = snap.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-        const tripImage = `https://loremflickr.com/400/400/${encodeURIComponent(cityName)},landscape/all?lock=${seed}`;
         
-        setTrip({ id: snap.id, ...data, tripImage });
+        // --- LOGICĂ IMAGINE BING (Identică cu Home/Planning) ---
+        const isBroken = !data.image || 
+                         data.image === "" || 
+                         data.image.includes("loremflickr") || 
+                         data.image.includes("picsum.photos") || 
+                         data.image.includes("teleport");
+
+        let finalTripImage = data.image;
+
+        if (isBroken) {
+          // Folosim w=400 h=400 pentru că e poză de profil (pătrată) și p=0 pentru margini
+          finalTripImage = `https://tse1.mm.bing.net/th?q=${encodeURIComponent(cityName + " city travel landscape")}&w=400&h=400&c=1&p=0`;
+        }
+        
+        setTrip({ id: snap.id, ...data, tripImage: finalTripImage });
       }
     });
 
@@ -109,12 +120,10 @@ export function TripChat() {
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-
     const user = auth.currentUser;
 
     if (!file || !user) return;
 
-    // Verificăm dimensiunea (max 1MB pentru Base64 în Firestore)
     if (file.size > 1048487) {
       toast.error("Poza este prea mare! Încearcă una sub 1MB.");
       return;
@@ -154,18 +163,20 @@ export function TripChat() {
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-950 transition-colors overflow-hidden">
       {/* Header cu Poza de Profil a Grupului */}
       <div className="bg-gradient-to-r from-blue-950 via-purple-900 to-fuchsia-950 border-b dark:border-gray-800 sticky top-0 z-10 px-4 py-3 flex items-center gap-3 shadow-sm transition-colors">
-        <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-gray-500 dark:text-gray-400 active:scale-90 transition-all">
+        <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-white/70 hover:text-white active:scale-90 transition-all">
           <ArrowLeft className="w-6 h-6" />
         </button>
         
-        {/* POZA DE PROFIL GRUP */}
-        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-blue-100 dark:border-blue-900/50 shrink-0 shadow-sm">
-          <ImageWithFallback src={trip?.tripImage} alt={trip?.name} className="w-full h-full object-cover" />
+        {/* POZA DE PROFIL GRUP - Am adăugat flex și object-cover pentru a asigura umplerea totală */}
+        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white/20 shrink-0 shadow-sm flex">
+          <ImageWithFallback src={trip?.tripImage} alt={trip?.name} className="w-full h-full min-w-full min-h-full object-cover" />
         </div>
 
         <div className="flex justify-between w-full items-center min-w-0">
-          <h1 className="text-md font-bold text-gray-900 dark:text-white truncate tracking-tight mb-1">{trip?.name}</h1>
-          <span className="text-[13px] text-blue-600 dark:text-blue-400 font-bold tracking-widest shrink-0">{trip?.participants?.length || 0} Membri</span>
+          <div className="flex flex-col min-w-0">
+             <h1 className="text-md font-bold text-white truncate tracking-tight">{trip?.name}</h1>
+             <span className="text-[10px] text-white/60 font-bold tracking-widest uppercase">{trip?.participants?.length || 0} Membri</span>
+          </div>
         </div>
       </div>
 
@@ -180,7 +191,6 @@ export function TripChat() {
               <div className={`max-w-[75%] rounded-2xl shadow-sm overflow-hidden ${
                 isMe ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-none border border-gray-100 dark:border-gray-700'
               }`}>
-                {/* DACĂ MESAJUL ESTE O POZĂ */}
                 {msg.imageUrl ? (
                   <div className="p-1">
                     <img src={msg.imageUrl} alt="Sent" className="w-full h-auto rounded-xl max-h-80 object-cover" />
@@ -198,7 +208,6 @@ export function TripChat() {
 
       {/* Input Area */}
       <div className="bg-white dark:bg-gray-900 border-t dark:border-gray-800 p-4 flex items-center gap-3 w-full transition-colors pb-safe">
-        {/* Hidden Input pentru poze */}
         <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
         
         <button 

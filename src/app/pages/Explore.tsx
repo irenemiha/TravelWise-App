@@ -69,16 +69,11 @@ export function Explore() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   
-  // Stocăm ID-urile salvate de utilizator din Firestore
   const [userSavedIds, setUserSavedIds] = useState<string[]>([]);
-
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
   const [selectedAttraction, setSelectedAttraction] = useState<Attraction | null>(null);
-
   const [votesData, setVotesData] = useState<{[key: string]: any}>({});
-  
-  // --- LOGICĂ NOUĂ: CONTROL DROPDOWN CĂUTARE ---
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
@@ -93,7 +88,6 @@ export function Explore() {
     targetTripId: tripId
   });
 
-  // HELPER: DETERMINISTIC SEED & PRICE
   const getDeterministicSeed = (str: string) => {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -114,37 +108,25 @@ export function Explore() {
     }
   };
 
-  // 1. FETCH DATE TRIP ȘI LISTA DE SALVATE A USERULUI
   useEffect(() => {
     if (!auth.currentUser) return;
-
-    // Ascultăm datele tripului curent
     const tripRef = doc(db, "trips", tripId);
     const unsubTrip = onSnapshot(tripRef, (snap) => {
       if (snap.exists()) setTrip({ id: snap.id, ...snap.data() });
     });
-
-    // Ascultăm toate tripurile userului (pentru dropdown-ul de adăugare)
     const q = query(collection(db, "trips"), where("participants", "array-contains", auth.currentUser.uid));
     getDocs(q).then(snap => {
       setMyTrips(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-
-    // ASCULTĂM PROFILE USER (pentru favorite)
     const userRef = doc(db, "users", auth.currentUser.uid);
     const unsubUser = onSnapshot(userRef, (snap) => {
       if (snap.exists()) {
         setUserSavedIds(snap.data().savedAttractions || []);
       }
     });
-
-    return () => {
-      unsubTrip();
-      unsubUser();
-    };
+    return () => { unsubTrip(); unsubUser(); };
   }, [tripId]);
 
-  // 2. ASCULTĂ VOTURILE REALE
   useEffect(() => {
     if (!tripId) return;
     const votesRef = collection(db, "trips", tripId, "attractionVotes");
@@ -156,32 +138,25 @@ export function Explore() {
     return () => unsubVotes();
   }, [tripId]);
 
-  // 3. LOGICA GEOAPIFY CU PERSISTENȚĂ (localStorage)
+  // --- LOGICĂ ACTUALIZATĂ PENTRU PRECIZIE LOCAȚII ---
   useEffect(() => {
     if (!trip?.destination) return;
     const cityName = trip.destination.split(",")[0].trim();
-    const cacheKey = `explore_cache_${cityName}`; // Cheie unică pentru fiecare oraș
+    const cacheKey = `explore_cache_${cityName}`;
 
     const fetchPlaces = async () => {
-      // 1. Încercăm să luăm datele din localStorage
       const savedCache = localStorage.getItem(cacheKey);
-      
       if (savedCache) {
-        console.log(`⚡ Încarc ${cityName} din memoria locală...`);
         const parsedData = JSON.parse(savedCache);
-        
-        // Sincronizăm inimioarele cu ce avem în Firestore chiar dacă datele vin din cache
         const syncedWithHearts = parsedData.map((attr: Attraction) => ({
           ...attr,
           saved: userSavedIds.includes(attr.id)
         }));
-        
         setAttractions(syncedWithHearts);
         setIsLoading(false);
-        return; // Oprim execuția aici, nu mai apelăm API-ul deloc
+        return;
       }
 
-      // 2. Dacă NU există în cache, facem fetch-ul normal
       setIsLoading(true);
       try {
         const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityName)}&limit=1`);
@@ -190,8 +165,9 @@ export function Explore() {
         const { lat, lon } = geoData[0];
         
         const API_KEY = "6627c045fcd14d76b5b547c8f3c54d17";
+        // MODIFICARE: Cerc de 5km (5000m) + Bias proximity pentru a evita alte orașe
         const response = await fetch(
-          `https://api.geoapify.com/v2/places?categories=tourism.attraction,catering.restaurant,entertainment.museum,heritage&filter=circle:${lon},${lat},15000&limit=50&lang=ro&apiKey=${API_KEY}`
+          `https://api.geoapify.com/v2/places?categories=tourism.attraction,catering.restaurant,entertainment.museum,heritage&filter=circle:${lon},${lat},5000&bias=proximity:${lon},${lat}&limit=50&lang=ro&apiKey=${API_KEY}`
         );
         const data = await response.json();
         
@@ -201,7 +177,16 @@ export function Explore() {
           return;
         }
 
-        const mappedData: Attraction[] = data.features.map((f: any) => {
+        // MODIFICARE: Filtrare strictă post-fetch pentru a asigura că orașul coincide
+        const filteredFeatures = data.features.filter((f: any) => {
+           const cityProp = f.properties.city || "";
+           const countyProp = f.properties.county || "";
+           // Permitem atracția doar dacă proprietatea 'city' conține numele orașului căutat
+           return cityProp.toLowerCase().includes(cityName.toLowerCase()) || 
+                  countyProp.toLowerCase().includes(cityName.toLowerCase());
+        });
+
+        const mappedData: Attraction[] = filteredFeatures.map((f: any) => {
           const p = f.properties;
           const cats = p.categories || [];
           const attractionId = p.place_id;
@@ -215,7 +200,8 @@ export function Explore() {
             id: attractionId,
             name: cleanName,
             description: "Descoperă această locație superbă în " + cityName,
-            image: `https://tse1.mm.bing.net/th?q=${encodeURIComponent(cleanName + " " + cityName)}&w=400&h=200&c=1`, 
+            // Imagine optimizată Bing cu crop forțat (p=0)
+            image: `https://tse1.mm.bing.net/th?q=${encodeURIComponent(cleanName + " " + cityName)}&w=1200&h=800&c=1&p=0`, 
             rating: parseFloat((4.2 + ((getDeterministicSeed(attractionId) % 8) / 10)).toFixed(1)),
             votes: { up: 0, down: 0 },
             category: category,
@@ -227,25 +213,21 @@ export function Explore() {
           };
         });
 
-        // 3. SALVĂM PERMANENT ÎN LOCAL STORAGE
         localStorage.setItem(cacheKey, JSON.stringify(mappedData));
         setAttractions(mappedData);
-
       } catch (error) { 
         console.error("Explore error:", error); 
       } finally { 
         setIsLoading(false); 
       }
     };
-
     fetchPlaces();
-  }, [trip?.destination]); // Se declanșează doar la schimbarea orașului
+  }, [trip?.destination, userSavedIds.length]);
 
-  // 4. LOGICA SCROLL LA ATRACȚIE
   const scrollToLocation = (targetId: string) => {
     const element = document.getElementById(targetId);
     if (element) {
-      setSearchQuery(""); // Opțional: resetăm căutarea după selectare
+      setSearchQuery("");
       setIsDropdownOpen(false);
       setTimeout(() => {
         element.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -265,7 +247,6 @@ export function Explore() {
     }
   }, [isLoading, attractions]);
 
-  // Închidere dropdown la click în exterior
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
@@ -336,7 +317,6 @@ export function Explore() {
     if (!auth.currentUser) return;
     const userRef = doc(db, "users", auth.currentUser.uid);
     const isCurrentlySaved = userSavedIds.includes(id);
-
     try {
       if (isCurrentlySaved) {
         await updateDoc(userRef, { savedAttractions: arrayRemove(id) });
@@ -345,10 +325,7 @@ export function Explore() {
         await updateDoc(userRef, { savedAttractions: arrayUnion(id) });
         toast.success("Salvat la favorite!");
       }
-    } catch (e) { 
-      console.error("Save error:", e); 
-      toast.error("Eroare la salvare.");
-    }
+    } catch (e) { toast.error("Eroare la salvare."); }
   };
 
   const handleOpenAddDialog = (attraction: Attraction) => {
@@ -364,12 +341,9 @@ export function Explore() {
   };
 
   const categories = ["all", "Restaurante", "Muzee", "Istoric", "Atracții"];
-  
-  // Sugestii pentru dropdown (filtrare bazată pe ce este deja încărcat)
   const searchSuggestions = searchQuery.length > 0 
     ? attractions.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 5)
     : [];
-
   const filteredAttractions = attractions.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase()) && (selectedCategory === "all" || a.category === selectedCategory));
 
   if (!trip) return <div className="h-screen flex items-center justify-center dark:bg-gray-950"><Loader2 className="animate-spin text-blue-600" /></div>;
@@ -386,33 +360,16 @@ export function Explore() {
       <div className="p-6 flex flex-col items-center">
         <div className="w-full max-w-md">
           <div className="flex flex-col gap-6 w-full items-center">
-            {/* SEARCH AREA WITH DROPDOWN */}
             <div className="w-full relative" ref={searchRef}>
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input 
-                type="text" 
-                placeholder="Caută locații..." 
-                value={searchQuery} 
-                onFocus={() => setIsDropdownOpen(true)}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setIsDropdownOpen(true);
-                }} 
-                className="w-full pl-12 pr-4 py-4 border border-gray-200 dark:border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white dark:bg-gray-900 shadow-sm transition-all" 
-              />
-              
-              {/* DROPDOWN RESULTS */}
+              <input type="text" placeholder="Caută locații..." value={searchQuery} onFocus={() => setIsDropdownOpen(true)} onChange={(e) => { setSearchQuery(e.target.value); setIsDropdownOpen(true); }} className="w-full pl-12 pr-4 py-4 border border-gray-200 dark:border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white dark:bg-gray-900 shadow-sm transition-all" />
               {isDropdownOpen && searchSuggestions.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl shadow-xl z-[60] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
                   <div className="p-2 flex flex-col">
                     {searchSuggestions.map((suggestion) => (
-                      <button
-                        key={suggestion.id}
-                        onClick={() => scrollToLocation(suggestion.id)}
-                        className="flex items-center gap-3 p-3 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-colors text-left group"
-                      >
-                        <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0">
-                          <img src={suggestion.image} alt={suggestion.name} className="w-full h-full object-cover" />
+                      <button key={suggestion.id} onClick={() => scrollToLocation(suggestion.id)} className="flex items-center gap-3 p-3 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-colors text-left group">
+                        <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 flex relative">
+                          <ImageWithFallback src={suggestion.image} alt={suggestion.name} className="absolute inset-0 w-full h-full object-cover" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-bold truncate group-hover:text-blue-600 dark:group-hover:text-blue-400">{suggestion.name}</p>
@@ -425,20 +382,13 @@ export function Explore() {
                 </div>
               )}
             </div>
-            
-            {/* CATEGORY SELECTOR WITH LABELS AND HORIZONTAL SCROLL */}
             <div className="flex w-full justify-between gap-4 overflow-x-auto py-2 px-1 scrollbar-hide no-scrollbar">
               {categories.map((cat) => (
                 <div key={cat} className="flex flex-col items-center gap-2 shrink-0">
-                  <button 
-                    onClick={() => setSelectedCategory(cat)} 
-                    className={`w-12 h-12 flex items-center justify-center rounded-full transition-all duration-300 active:scale-90 ${selectedCategory === cat ? "bg-blue-600 text-white scale-110 shadow-lg shadow-blue-200 dark:shadow-none" : "bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 text-gray-400 shadow-sm"}`}
-                  >
+                  <button onClick={() => setSelectedCategory(cat)} className={`w-12 h-12 flex items-center justify-center rounded-full transition-all duration-300 active:scale-90 ${selectedCategory === cat ? "bg-blue-600 text-white scale-110 shadow-lg shadow-blue-200 dark:shadow-none" : "bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 text-gray-400 shadow-sm"}`}>
                     {cat === "all" ? <LayoutGrid className="w-5 h-5" /> : cat === "Restaurante" ? <Utensils className="w-5 h-5" /> : cat === "Muzee" ? <Library className="w-5 h-5" /> : cat === "Istoric" ? <History className="w-5 h-5" /> : <Palmtree className="w-5 h-5" />}
                   </button>
-                  <span className={`text-[10px] font-bold uppercase tracking-tight ${selectedCategory === cat ? "text-blue-600 dark:text-blue-400" : "text-gray-400"}`}>
-                    {cat === "all" ? "Toate" : cat}
-                  </span>
+                  <span className={`text-[10px] font-bold uppercase tracking-tight ${selectedCategory === cat ? "text-blue-600 dark:text-blue-400" : "text-gray-400"}`}>{cat === "all" ? "Toate" : cat}</span>
                 </div>
               ))}
             </div>
@@ -458,8 +408,8 @@ export function Explore() {
               const userVote = persistentVote.voters?.[auth.currentUser?.uid || ""] || null;
               return (
               <div id={attr.id} key={attr.id} className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-sm overflow-hidden border border-gray-100 dark:border-gray-800 hover:shadow-xl transition-all duration-300 scroll-mt-24">
-                <div className="relative h-64 w-full">
-                  <ImageWithFallback src={attr.image} alt={attr.name} className="absolute inset-0 w-full h-full object-cover" />
+                <div className="relative h-64 w-full flex">
+                  <ImageWithFallback src={attr.image} alt={attr.name} className="w-full h-full min-w-full min-h-full object-cover" />
                   <button onClick={() => toggleSave(attr.id)} className="absolute top-4 right-4 w-12 h-12 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md rounded-full flex items-center justify-center shadow-lg active:scale-125 transition-all">
                     <Heart className={`w-6 h-6 ${userSavedIds.includes(attr.id) ? "fill-red-500 text-red-500" : "text-gray-400"}`} />
                   </button>
@@ -506,7 +456,6 @@ export function Explore() {
         </div>
       </div>
 
-      {/* DIALOGS */}
       {isAddDialogOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-sm border border-gray-100 dark:border-gray-800 shadow-2xl">
