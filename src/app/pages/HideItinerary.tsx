@@ -15,6 +15,7 @@ export function HideItinerary() {
   const [isHidden, setIsHidden] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [trip, setTrip] = useState<{ name: string } | null>(null);
 
   // 1. ASCULTĂM STAREA DE VIZIBILITATE DIN FIRESTORE
   useEffect(() => {
@@ -25,6 +26,7 @@ export function HideItinerary() {
       if (snap.exists()) {
         const data = snap.data();
         // Folosim field-ul 'isItineraryHidden'
+        setTrip(data as { name: string });
         setIsHidden(data.isItineraryHidden ?? false);
       }
       setLoading(false);
@@ -77,7 +79,10 @@ export function HideItinerary() {
         >
           <ChevronLeft className="w-6 h-6 text-gray-900 dark:text-white" />
         </button>
-        <h1 className="ml-2 text-xl font-bold text-gray-900 dark:text-white transition-colors">Vizibilitate Plan</h1>
+        <div className="ml-4">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white transition-colors">Ascunde Itinerariul</h1>
+          <p className="text-xs text-blue-600 dark:text-blue-400 font-bold mt-1 uppercase tracking-widest leading-none">{trip?.name}</p>
+        </div>
       </div>
 
       <div className="p-6 flex flex-col items-center max-w-md mx-auto">
@@ -91,7 +96,7 @@ export function HideItinerary() {
         </div>
 
         <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3 transition-colors">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3 uppercase tracking-tight transition-colors">
             {isHidden ? "Planul este Ascuns" : "Planul este Vizibil"}
           </h2>
           <p className="text-gray-600 dark:text-gray-400 leading-relaxed transition-colors">
@@ -122,7 +127,7 @@ export function HideItinerary() {
           {isUpdating ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
-            isHidden ? "Dezvăluie Itinerariul" : "Ascunde Itinerariul (Surpriză)"
+            isHidden ? "Dezvăluie Itinerariul" : "Ascunde Itinerariul"
           )}
         </button>
       </div>

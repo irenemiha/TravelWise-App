@@ -13,6 +13,7 @@ export function PrivacySettings() {
   
   const [isPrivate, setIsPrivate] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [trip, setTrip] = useState<{ name: string } | null>(null);
 
   // 1. ASCULTĂM STATUSUL DE PRIVACY DIN FIRESTORE
   useEffect(() => {
@@ -24,6 +25,7 @@ export function PrivacySettings() {
         const data = snap.data();
         // Presupunem că field-ul se numește 'isPrivate', default true
         setIsPrivate(data.isPrivate ?? true);
+        setTrip(data as { name: string });
       }
       setLoading(false);
     });
@@ -69,9 +71,12 @@ export function PrivacySettings() {
         >
           <ChevronLeft className="w-6 h-6 text-gray-900 dark:text-white" />
         </button>
-        <h1 className="ml-2 text-xl font-bold text-gray-900 dark:text-white transition-colors">
-          Confidențialitate
-        </h1>
+        <div className="ml-4">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white transition-colors">
+            Confidențialitate
+          </h1>
+          <p className="text-xs text-blue-600 dark:text-blue-400 font-bold mt-1 uppercase tracking-widest">{trip?.name}</p>
+        </div>
       </div>
 
       <div className="p-6 space-y-4 max-w-md mx-auto">
@@ -88,7 +93,7 @@ export function PrivacySettings() {
               <div>
                 <p className="font-bold text-gray-900 dark:text-gray-100">Călătorie Privată</p>
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
-                  Doar membrii grupului pot vedea planul și detaliile.
+                  Doar membrii grupului pot vedea planul și detaliile
                 </p>
               </div>
             </div>

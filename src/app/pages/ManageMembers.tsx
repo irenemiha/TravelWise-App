@@ -20,17 +20,22 @@ import {
   onSnapshot, 
   updateDoc, 
   arrayRemove, 
+  arrayUnion,
   collection, 
   query, 
   where, 
-  getDocs 
+  getDocs,
+  documentId // ADĂUGAT PENTRU FIX QUERY
 } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
 
 interface Member {
   id: string;
   name: string;
-  role: "admin" | "member";
+  role: "owner" | "admin" | "member";
   initials: string;
+  email?: string;
+  photoURL?: string;
 }
 
 export function ManageMembers() {
@@ -48,11 +53,13 @@ export function ManageMembers() {
 
   const inviteLink = `${window.location.origin}/trip/${tripId}?invite=true`;
 
-  // VERIFICARE ADMIN
-  const isAdmin = auth.currentUser?.uid === trip?.ownerId;
+  // VERIFICARE ADMIN PRINCIPAL (OWNER)
+  const currentUserId = auth.currentUser?.uid;
+  const isAdmin = currentUserId === trip?.ownerId;
 
   // 1. ASCULTĂM DATELE CĂLĂTORIEI ȘI MEMBRII
   useEffect(() => {
+    onAuthStateChanged(auth, (user) => { if (!user) navigate("/"); });
     if (!tripId) return;
 
     const tripRef = doc(db, "trips", tripId);
@@ -61,30 +68,42 @@ export function ManageMembers() {
         const tripData = snap.data();
         setTrip(tripData);
 
-        // Fetch detalii useri pentru toți participanții
         if (tripData.participants && tripData.participants.length > 0) {
           const usersRef = collection(db, "users");
-          const q = query(usersRef, where("uid", "in", tripData.participants));
+          
+          // FIX: Folosim documentId() pentru a găsi toți membrii (inclusiv pe tine)
+          const q = query(usersRef, where(documentId(), "in", tripData.participants));
           const usersSnap = await getDocs(q);
           
           const membersList = usersSnap.docs.map(uDoc => {
             const userData = uDoc.data();
-            const role = uDoc.id === tripData.ownerId ? "admin" : "member";
+            
+            // Logica de roluri
+            let role: "owner" | "admin" | "member" = "member";
+            if (uDoc.id === tripData.ownerId) role = "owner";
+            else if (tripData.admins?.includes(uDoc.id)) role = "admin";
+            
+            const name = userData.name || userData.displayName || "Explorator";
+
             return {
               id: uDoc.id,
-              name: userData.name || "Utilizator",
-              role: role as "admin" | "member",
-              initials: (userData.name || "U").split(" ").map((n: string) => n[0]).join("").toUpperCase()
-            };
+              name: name,
+              role: role,
+              email: userData.email,
+              photoURL: userData.photoURL,
+              initials: name.split(" ").map((n: string) => n[0]).join("").toUpperCase().substring(0, 2)
+            } as Member;
           });
-          setMembers(membersList);
+          
+          // Sortare: Administratorul Călătorie (Owner) e primul
+          setMembers(membersList.sort((a, b) => (a.role === 'owner' ? -1 : 1)));
         }
       }
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [tripId]);
+  }, [tripId, navigate]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(inviteLink);
@@ -92,30 +111,38 @@ export function ManageMembers() {
     setShowLinkModal(false);
   };
 
-  // 2. LOGICĂ SCHIMBARE ROL (În Firestore)
-  const handleChangeRole = async (memberId: string, newRole: "admin" | "member") => {
-    if (newRole === "admin") {
-      toast.warning("Momentan, călătoria poate avea un singur proprietar principal.");
+  // 2. LOGICĂ SCHIMBARE ROL
+  const handleChangeRole = async (memberId: string, currentRole: string) => {
+    if (!isAdmin || memberId === trip.ownerId) return;
+
+    try {
+      const tripRef = doc(db, "trips", tripId);
+      if (currentRole === "member") {
+        await updateDoc(tripRef, { admins: arrayUnion(memberId) });
+        toast.success("Rol actualizat: Administrator");
+      } else {
+        await updateDoc(tripRef, { admins: arrayRemove(memberId) });
+        toast.info("Rol actualizat: Membru");
+      }
       setMemberToEdit(null);
-      return;
+    } catch (e) {
+      toast.error("Eroare la salvare.");
     }
-    toast.info("Funcția de roluri multiple va fi disponibilă în curând.");
-    setMemberToEdit(null);
   };
 
   // 3. LOGICĂ ELIMINARE MEMBRU
   const confirmDelete = async () => {
     if (!memberToDelete || !tripId) return;
-
     try {
       const tripRef = doc(db, "trips", tripId);
       await updateDoc(tripRef, {
-        participants: arrayRemove(memberToDelete.id)
+        participants: arrayRemove(memberToDelete.id),
+        admins: arrayRemove(memberToDelete.id)
       });
-      toast.error(`${memberToDelete.name} a fost eliminat din grup.`);
+      toast.error(`${memberToDelete.name} a fost eliminat.`);
       setMemberToDelete(null);
     } catch (error) {
-      toast.error("Eroare la eliminarea membrului.");
+      toast.error("Eroare la eliminare.");
     }
   };
 
@@ -131,7 +158,10 @@ export function ManageMembers() {
         >
           <ChevronLeft className="w-6 h-6 text-gray-800 dark:text-gray-200" />
         </button>
-        <h1 className="ml-2 text-xl font-bold text-gray-900 dark:text-white font-black tracking-tight">Membri Grup</h1>
+        <div className="ml-2">
+          <h1 className="ml-2 text-xl font-bold text-gray-900 dark:text-white font-black tracking-tight">Gestionează Membri</h1>
+          <p className="ml-2 text-xs text-blue-600 dark:text-blue-400 font-bold mt-1 uppercase tracking-widest">{trip?.name}</p>
+        </div>
       </div>
 
       <div className="p-6 max-w-md mx-auto space-y-4">
@@ -150,28 +180,28 @@ export function ManageMembers() {
           {members.map((member) => (
             <div key={member.id} className="p-4 flex items-center justify-between border-b dark:border-gray-800 last:border-0 h-20 transition-colors">
               <div className="flex items-center gap-3">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm ${
-                  member.role === 'admin' 
-                    ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-500' 
-                    : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm overflow-hidden ${
+                  member.role === 'owner' ? 'bg-amber-100 text-amber-700' : 
+                  member.role === 'admin' ? 'bg-purple-100 text-purple-700' : 
+                  'bg-blue-50 text-blue-600'
                 }`}>
-                  {member.initials}
+                  {member.photoURL ? <img src={member.photoURL} className="w-full h-full object-cover" /> : member.initials}
                 </div>
                 <div>
-                  <p className="font-bold text-gray-900 dark:text-gray-100 text-[15px]">{member.name}</p>
+                  <p className="font-bold text-gray-900 dark:text-gray-100 text-[15px]">{member.name} {member.role === 'owner'}</p>
                   <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${
-                    member.role === 'admin' 
-                      ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-400' 
-                      : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+                    member.role === 'owner' || member.role === 'admin' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-100 dark:bg-gray-800 text-gray-500'
                   }`}>
-                    {member.role === 'admin' ? 'Administrator' : 'Membru'}
+                    {member.role === 'owner' || member.role === 'admin' ? 'Administrator Călătorie' : 'Membru'}
                   </span>
                 </div>
               </div>
 
-              {/* Zona de Actiuni - Vizibilă doar pentru Admin-ul Trip-ului */}
+              {/* Zona de Actiuni - Vizibilă doar pentru Admin-ul principal și doar în dreptul altora */}
               <div className="flex items-center">
-                {auth.currentUser?.uid === trip?.ownerId && (
+                {isAdmin && member.id !== currentUserId && (
                   <>
                     <button 
                       onClick={() => setMemberToEdit(member)}
@@ -180,24 +210,21 @@ export function ManageMembers() {
                       <MoreVertical className="w-5 h-5" />
                     </button>
                     
-                    {member.id !== trip?.ownerId && (
-                      <button 
-                        onClick={() => setMemberToDelete(member)} 
-                        className="p-2 text-red-400 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-colors"
-                      >
-                        <UserMinus className="w-5 h-5" />
-                      </button>
-                    )}
+                    <button 
+                      onClick={() => setMemberToDelete(member)} 
+                      className="p-2 text-red-400 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-colors"
+                    >
+                      <UserMinus className="w-5 h-5" />
+                    </button>
                   </>
                 )}
-                {member.id === trip?.ownerId && auth.currentUser?.uid !== trip?.ownerId && <div className="w-9" />}
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* --- MODALELE RĂMÂN NESCHIMBATE --- */}
+      {/* --- MODALE --- */}
       {showLinkModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
           <div className="bg-white dark:bg-gray-900 rounded-[32px] p-6 w-full max-w-sm border dark:border-gray-800 animate-in zoom-in duration-200">
@@ -230,7 +257,7 @@ export function ManageMembers() {
             <h3 className="text-lg font-bold mb-4 px-2 text-gray-900 dark:text-white">Rol pentru {memberToEdit.name}</h3>
             <div className="space-y-3">
               <button 
-                onClick={() => handleChangeRole(memberToEdit.id, "admin")}
+                onClick={() => handleChangeRole(memberToEdit.id, memberToEdit.role)}
                 className={`w-full p-4 rounded-2xl flex items-center justify-between border-2 transition-all ${
                   memberToEdit.role === 'admin' 
                     ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-500' 
@@ -248,7 +275,7 @@ export function ManageMembers() {
               </button>
 
               <button 
-                onClick={() => handleChangeRole(memberToEdit.id, "member")}
+                onClick={() => handleChangeRole(memberToEdit.id, memberToEdit.role)}
                 className={`w-full p-4 rounded-2xl flex items-center justify-between border-2 transition-all ${
                   memberToEdit.role === 'member' 
                     ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-500' 

@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "travelwise-1cca6"
-  }
+  },
+  "targets": {
+    "travelwise-1cca6": {
+      "hosting": {
+        "app": [
+          "travelwise-1cca6-c1f85"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

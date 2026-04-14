@@ -15,6 +15,7 @@ export function LockItinerary() {
   const [isLocked, setIsLocked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [trip, setTrip] = useState<{ name: string } | null>(null);
 
   // 1. ASCULTĂM STAREA DE BLOCARE DIN FIRESTORE
   useEffect(() => {
@@ -24,6 +25,7 @@ export function LockItinerary() {
     const unsubscribe = onSnapshot(tripRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
+        setTrip(data as { name: string });
         // Presupunem că field-ul se numește 'isLocked'
         setIsLocked(data.isLocked ?? false);
       }
@@ -73,7 +75,10 @@ export function LockItinerary() {
         >
           <ChevronLeft className="w-6 h-6 text-gray-900 dark:text-white" />
         </button>
-        <h1 className="ml-2 text-xl font-bold text-gray-900 dark:text-white transition-colors">Stare Itinerariu</h1>
+        <div className="ml-4">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white transition-colors">Blochează Itinerariul</h1>
+          <p className="text-xs text-blue-600 dark:text-blue-400 font-bold mt-1 uppercase tracking-widest leading-none">{trip?.name}</p>
+        </div>
       </div>
 
       <div className="p-6 flex flex-col items-center text-center max-w-md mx-auto">
@@ -86,14 +91,14 @@ export function LockItinerary() {
           {isLocked ? <Lock className="w-16 h-16" /> : <Unlock className="w-16 h-16" />}
         </div>
         
-        <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white transition-colors">
+        <h2 className="text-2xl font-black uppercase mb-2 text-gray-900 dark:text-white transition-colors">
           {isLocked ? "Itinerariu Blocat" : "Itinerariu Deschis"}
         </h2>
         
         <p className="text-gray-600 dark:text-gray-400 mb-8 transition-colors leading-relaxed">
           {isLocked 
-            ? "Nimeni nu mai poate adăuga sau vota atracții noi în acest moment." 
-            : "Toți membrii pot adăuga, șterge sau vota elemente din planul de călătorie."}
+            ? "Modul de editare este dezactivat. Nimeni nu mai poate adăuga, vota sau șterge activități din planul curent." 
+            : "Toți membrii grupului au permisiunea de a propune locații noi și de a vota destinațiile preferate."}
         </p>
 
         {/* Toggle Action Button */}
@@ -114,8 +119,8 @@ export function LockItinerary() {
         </button>
         
         <div className="mt-8 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl border border-amber-100 dark:border-amber-900/30 transition-colors">
-           <p className="text-xs text-amber-800 dark:text-amber-400 font-medium leading-relaxed">
-             <strong>Notă:</strong> Chiar și atunci când este blocat, membrii grupului pot vizualiza în continuare programul stabilit, dar butoanele de editare vor fi dezactivate pentru ei.
+           <p className="text-sm text-amber-800 dark:text-amber-200 font-medium leading-relaxed">
+             <strong>Notă:</strong> Această funcție asigură faptul că planul final rămâne neschimbat înainte de plecare. Membrii pot vizualiza în continuare totul.
            </p>
         </div>
       </div>

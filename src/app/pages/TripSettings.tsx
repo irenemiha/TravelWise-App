@@ -102,7 +102,7 @@ export function TripSettings() {
         </button>
         <div className="ml-2">
           <h1 className="text-xl font-bold text-gray-900 dark:text-white leading-none">Setări Călătorie</h1>
-          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-1">{trip?.name}</p>
+          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-1 uppercase">{trip?.name}</p>
         </div>
       </div>
 

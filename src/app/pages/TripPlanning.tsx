@@ -26,7 +26,10 @@ import {
   updateDoc, 
   arrayUnion, 
   getDocs, 
-  where 
+  where,
+  orderBy, // ADĂUGAT
+  limit,   // ADĂUGAT
+  documentId // ADĂUGAT PENTRU FIX NUME
 } from "firebase/firestore";
 
 interface Member {
@@ -51,6 +54,7 @@ export function TripPlanning() {
   const [itineraryItems, setItineraryItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalAvailableAttractions, setTotalAvailableAttractions] = useState(0); 
+  const [activities, setActivities] = useState<any[]>([]);
 
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [isPendingInvite, setIsPendingInvite] = useState(false);
@@ -94,30 +98,28 @@ export function TripPlanning() {
         
         if (allParticipantUids.length > 0) {
           const usersRef = collection(db, "users");
-          const q = query(usersRef, where("uid", "in", allParticipantUids));
+          // FIX: Căutăm după documentId() pentru a găsi sigur profilul adminului
+          const q = query(usersRef, where(documentId(), "in", allParticipantUids));
           const usersSnap = await getDocs(q);
           
           const membersList: Member[] = usersSnap.docs.map(uDoc => {
             const userData = uDoc.data();
             return {
-              id: userData.uid,
-              name: userData.name || "Utilizator",
+              id: uDoc.id,
+              name: userData.name || userData.displayName || "Utilizator",
               avatar: userData.photoURL || "",
-              role: userData.uid === data.ownerId ? "admin" : "member"
+              role: uDoc.id === data.ownerId ? "admin" : "member"
             };
           });
 
-          // --- LOGICĂ ACTUALIZATĂ PENTRU NUMELE ADMINULUI ---
           allParticipantUids.forEach(uid => {
             if (!membersList.find(m => m.id === uid)) {
-              // Dacă e adminul, folosim ownerName din călătorie sau displayName-ul curent
-              const adminFallbackName = data.ownerName || (uid === auth.currentUser?.uid ? auth.currentUser?.displayName : "Administrator");
-              
+              const isOwner = uid === data.ownerId;
               membersList.push({
                 id: uid,
-                name: uid === data.ownerId ? adminFallbackName : "Membru în curs...",
+                name: isOwner ? (data.ownerName || "Administrator") : "Membru în curs...",
                 avatar: "",
-                role: uid === data.ownerId ? "admin" : "member"
+                role: isOwner ? "admin" : "member"
               });
             }
           });
@@ -150,10 +152,19 @@ export function TripPlanning() {
       setVotedMembersCount(uniqueVoters.size);
     });
 
+    // --- LOGICĂ NOUĂ: FETCH ACTIVITATE RECENTĂ ---
+    const activityRef = collection(db, "trips", id, "activity");
+    const qActivity = query(activityRef, orderBy("timestamp", "desc"), limit(5));
+    const unsubActivity = onSnapshot(qActivity, (snapshot) => {
+      const logs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setActivities(logs);
+    });
+
     return () => {
       unsubTrip();
       unsubItinerary();
       unsubVotes();
+      unsubActivity(); // Cleanup
     };
   }, [id, navigate]);
 
@@ -228,7 +239,7 @@ export function TripPlanning() {
               <div className="flex flex-col gap-2 text-blue-100 dark:text-blue-200 text-sm items-center">
                 <div className="flex items-center gap-2 justify-center"><MapPin className="w-4 h-4" />{trip.destination}</div>
                 <div className="flex items-center gap-2 justify-center"><Calendar className="w-4 h-4" />{trip.startDate} - {trip.endDate}</div>
-                <div className="flex items-center gap-2 justify-center"><Users className="w-4 h-4" />{members.length} membri</div>
+                <div className="flex items-center gap-2 justify-center"><Users className="w-4 h-4" />{members.length} Membri</div>
               </div>
             </div>
             <div className="flex gap-2 justify-center w-full max-w-xs mx-auto">
@@ -266,7 +277,7 @@ export function TripPlanning() {
               </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4 w-full flex flex-col items-center border dark:border-gray-800 transition-colors">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6 w-full flex flex-col items-center border dark:border-gray-800 transition-colors">
               <div className="flex flex-col items-center justify-center mb-4 gap-2 w-full relative">
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white text-center">Membri ({members.length})</h2>
                 {currentUserRole === "admin" && <button onClick={() => setShowInviteModal(true)} className="text-blue-600 dark:text-blue-400 absolute right-0 top-0 p-1"><UserPlus className="w-5 h-5" /></button>}
@@ -287,6 +298,55 @@ export function TripPlanning() {
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* Recent Activity */}
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-800">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white text-center">Activitate recentă</h2>
+              <div className="space-y-6 items-center">
+                {activities.length === 0 ? (
+                  <p className="text-gray-400 text-sm text-center italic py-4">Nu există activitate recentă.</p>
+                ) : activities.map((act) => (
+                  <div key={act.id} className="flex gap-4 items-start">
+                    <div className={`w-10 h-10 rounded-full ${getAvatarColor(act.userName ? act.userName.charCodeAt(0) : 0)} flex items-center justify-center text-white font-black text-xs`}>
+                      {getInitials(act.userName || "U")}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-gray-900 dark:text-white font-medium">
+                        <span className="font-black">{act.userName}</span> {act.action}{" "}
+                        <span className="text-blue-600 dark:text-blue-400 font-black">{act.targetName}</span>
+                      </p>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">recent</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Next Steps */}
+            <div className="bg-gradient-to-r from-blue-950 via-purple-900 to-fuchsia-950 rounded-xl shadow-xl p-8 text-white relative overflow-hidden group">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 blur-[80px] rounded-full" />
+              <h2 className="font-black mb-8 uppercase text-center text-blue-500">Următorii Pași</h2>
+              <div className="space-y-6">
+                {[
+                  { t: "Adaugă 5 atracții", d: "Construiește baza planului." },
+                  { t: "Invită prietenii", d: "O aventură se împarte cu echipa." },
+                  { t: "Votați prioritățile", d: "Alegeți ce merită văzut." }
+                ].map((step, i) => (
+                  <div key={i} className="flex items-start gap-4">
+                    <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0 font-black text-xs">
+                      {i + 1}
+                    </div>
+                    <div>
+                      <p className="text-sm font-black uppercase">{step.t}</p>
+                      <p className="text-sm text-gray-400 font-medium">{step.d}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <Link to={`/explore/${trip.id}`} className="mt-10 w-full font-black text-sm bg-white text-gray-950 py-5 rounded-2xl hover:bg-blue-50 transition-all text-center flex items-center justify-center gap-3 uppercase shadow-xl">
+                Lansează explorarea <ArrowRight className="w-5 h-5" />
+              </Link>
             </div>
           </div>
         </div>

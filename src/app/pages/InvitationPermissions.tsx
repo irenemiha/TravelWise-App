@@ -15,6 +15,7 @@ export function InvitationPermissions() {
   const [selected, setSelected] = useState("admin");
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [trip, setTrip] = useState<{ name: string } | null>(null);
 
   const options = [
     { id: "all", title: "Oricine din grup", desc: "Toți membrii pot invita persoane noi." },
@@ -30,6 +31,7 @@ export function InvitationPermissions() {
       if (snap.exists()) {
         const data = snap.data();
         // Presupunem că field-ul se numește 'invitationPolicy'
+        setTrip(data as any);
         setSelected(data.invitationPolicy || "admin");
       }
       setLoading(false);
@@ -75,7 +77,10 @@ export function InvitationPermissions() {
         >
           <ChevronLeft className="w-6 h-6 text-gray-900 dark:text-white" />
         </button>
-        <h1 className="ml-2 text-xl font-bold text-gray-900 dark:text-white">Permisiuni Invitație</h1>
+        <div className="ml-4">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Permisiuni Invitație</h1>
+          <p className="text-xs text-blue-600 dark:text-blue-400 font-bold mt-1 uppercase tracking-widest">{trip?.name}</p>
+        </div>
       </div>
 
       <div className="p-6 space-y-3 max-w-md mx-auto">

@@ -19,6 +19,7 @@ export function VoteNotifications() {
   });
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [trip, setTrip] = useState<{ name: string } | null>(null);
 
   // 1. ASCULTĂM SETĂRILE DIN FIRESTORE
   useEffect(() => {
@@ -28,6 +29,7 @@ export function VoteNotifications() {
     const unsubscribe = onSnapshot(tripRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
+        setTrip(data as { name: string });
         // Verificăm dacă avem deja obiectul de setări, altfel folosim default-ul
         if (data.voteSettings) {
           setSettings(data.voteSettings);
@@ -78,12 +80,16 @@ export function VoteNotifications() {
         >
           <ChevronLeft className="w-6 h-6 text-gray-900 dark:text-white" />
         </button>
-        <h1 className="ml-2 text-xl font-bold text-gray-900 dark:text-white">Alerte Voturi</h1>
+        <div className="ml-4">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Alerte Voturi</h1>
+          <p className="text-xs text-blue-600 dark:text-blue-400 font-bold mt-1 uppercase tracking-widest leading-none">{trip?.name}</p>
+        </div>
+
       </div>
 
       <div className="p-6 space-y-4 max-w-md mx-auto">
         <p className="text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1 mb-2">
-          Preferințe Notificări pentru acest Trip
+          Preferințe Notificări
         </p>
 
         <div className={`bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 divide-y dark:divide-gray-800 shadow-sm overflow-hidden transition-all ${isUpdating ? 'opacity-50 pointer-events-none' : ''}`}>
@@ -108,7 +114,7 @@ export function VoteNotifications() {
             <div className="flex-1 pr-4">
               <p className="font-bold text-gray-900 dark:text-gray-100">Rezumat zilnic</p>
               <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mt-0.5">
-                Un singur raport seara cu toate voturile zilei pentru a evita spam-ul.
+                Un raport zilnic cu toate voturile zilei.
               </p>
             </div>
             <input 
@@ -124,7 +130,7 @@ export function VoteNotifications() {
             <div className="flex-1 pr-4">
               <p className="font-bold text-gray-900 dark:text-gray-100">Alerte pe Chat</p>
               <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mt-0.5">
-                Să apară mesaje automate în chat când se votează ceva.
+                Mesaje automate în chat la fiecare vot.
               </p>
             </div>
             <input 
