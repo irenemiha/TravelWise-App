@@ -25,9 +25,9 @@ export function SplashScreen() {
           className="w-24 h-24 bg-white/10 backdrop-blur-xl rounded-[2rem] flex items-center justify-center shadow-2xl border border-white/20"
         >
           <img 
-            src="/logo.png" // Calea către fișierul tău PNG din folderul 'public'
+            src="/logo.png"
             alt="TravelWise Logo" 
-            className="w-12 h-12 object-contain" // Păstrează exact dimensiunile vechi ca să nu strici layout-ul
+            className="w-20 h-20 object-contain" // Păstrează exact dimensiunile vechi ca să nu strici layout-ul
           />
         </motion.div>
         
