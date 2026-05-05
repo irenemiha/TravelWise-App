@@ -23,13 +23,21 @@ export function NewTrip() {
   const [isCreating, setIsCreating] = useState(false);
 
   const [showCopyBadge, setShowCopyBadge] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false); // Stare pentru modala nouă
 
-  // --- LOGICA COPIERE LINK ---
-  const handleCopyInviteLink = () => {
+  // --- LOGICA TEXT INVITATIE ---
+  const getInviteData = () => {
     const baseUrl = window.location.origin;
-    const inviteText = `Bună! Te invit să planificăm împreună călătoria "${name || 'nouă'}" pe TravelWise! Alătură-te aici: ${baseUrl}/join/pending`;
-    
-    navigator.clipboard.writeText(inviteText).then(() => {
+    const text = `Bună! Te invit să planificăm împreună călătoria "${name || 'nouă'}" pe TravelWise! Alătură-te aici: ${baseUrl}/join/pending`;
+    return {
+      text,
+      encodedText: encodeURIComponent(text)
+    };
+  };
+
+  const handleCopyInviteLink = () => {
+    const { text } = getInviteData();
+    navigator.clipboard.writeText(text).then(() => {
       setShowCopyBadge(true);
       setTimeout(() => setShowCopyBadge(false), 2000);
       toast.success("Link copiat!");
@@ -125,11 +133,99 @@ export function NewTrip() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-24 inset-x-6 z-[100] max-w-md mx-auto bg-gray-900/90 dark:bg-blue-600/90 backdrop-blur-md text-white py-4 rounded-2xl shadow-2xl flex justify-center items-center gap-3 border border-white/20"
+            className="fixed bottom-24 inset-x-6 z-[200] max-w-md mx-auto bg-gray-900/90 dark:bg-blue-600/90 backdrop-blur-md text-white py-4 rounded-2xl shadow-2xl flex justify-center items-center gap-3 border border-white/20"
           >
             <Check className="w-5 h-5 text-white" />
             <span className="font-bold text-sm">Link de invitație copiat!</span>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* FERESTRA MODALĂ DE SHARE CU ICONIȚE REALE */}
+      <AnimatePresence>
+        {showShareModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 z-[110]">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white dark:bg-gray-900 rounded-[2.5rem] max-w-md w-full p-8 border border-gray-100 dark:border-gray-800 shadow-2xl relative flex flex-col"
+            >
+              <button 
+                type="button"
+                onClick={() => setShowShareModal(false)} 
+                className="absolute top-6 right-6 text-gray-400 hover:text-gray-900 dark:hover:text-white p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 tracking-tight">Trimite Invitația</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 font-medium">Alege platforma prin care dorești să îți inviți prietenii în grup:</p>
+
+              {/* Opțiuni Social Media reordonate cu logo-uri native */}
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                {/* WhatsApp */}
+                <a 
+                  href={`https://api.whatsapp.com/send?text=${getInviteData().encodedText}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-4 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/30 rounded-2xl flex flex-col items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400 transition-all font-bold text-xs tracking-wider"
+                >
+                  <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                    <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.713-1.457L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.625 1.451 5.436 0 9.851-4.38 9.854-9.765.001-2.606-1.013-5.059-2.86-6.909-1.848-1.85-4.305-2.87-6.917-2.871-5.442 0-9.856 4.382-9.859 9.766-.001 1.75.474 3.456 1.378 4.983L1.725 22.29l4.922-1.288zm12.414-7.228c-.24-.12-1.415-.697-1.635-.778-.22-.081-.381-.12-.54.12-.16.24-.613.778-.753.939-.14.162-.28.182-.52.062-.24-.12-.102-.37-.73-.929-.488-.436-.817-.973-.913-1.134-.096-.162-.01-.25.07-.33.072-.073.16-.182.24-.272.08-.09.107-.152.16-.302.054-.152.027-.284-.014-.365-.04-.082-.38-1.16-.52-1.5-.137-.333-.277-.288-.381-.293l-.324-.005c-.112 0-.294.041-.448.209-.154.168-.587.573-.587 1.399 0 .826.6 1.621.684 1.732.083.112 1.181 1.803 2.862 2.528.4.172.712.275.956.353.402.128.769.11 1.057.067.322-.048 1.415-.578 1.616-1.138.2-.56.2-1.04.14-1.139-.06-.1-.22-.16-.46-.28z"/>
+                  </svg>
+                  WhatsApp
+                </a >
+
+                {/* Instagram */}
+                <button 
+                  type="button"
+                  onClick={() => {
+                    handleCopyInviteLink();
+                    toast.info("Deschide Insta și inserează textul!");
+                  }}
+                  className="p-4 bg-gradient-to-tr from-amber-500/10 via-red-500/10 to-purple-500/10 hover:from-amber-500/20 hover:via-red-500/20 hover:to-purple-500/20 border border-red-100/40 dark:border-purple-900/30 rounded-2xl flex flex-col items-center justify-center gap-2 text-rose-600 dark:text-rose-400 transition-all font-bold text-xs tracking-wider"
+                >
+                  <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                    <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.051.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/>
+                  </svg>
+                  Instagram
+                </button>
+
+                {/* Telegram */}
+                <a 
+                  href={`https://t.me/share/url?url=${window.location.origin}/join/pending&text=${encodeURIComponent(`Bună! Te invit în călătoria "${name || 'nouă'}"!`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-4 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/20 dark:hover:bg-sky-950/40 border border-sky-100 dark:border-sky-900/30 rounded-2xl flex flex-col items-center justify-center gap-2 text-sky-500 dark:text-sky-400 transition-all font-bold text-xs tracking-wider"
+                >
+                  <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                    <path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0011.944 0zm5.556 8.133l-1.897 8.941c-.143.64-.52.795-1.05.498l-2.89-2.13-1.394 1.34c-.154.155-.284.285-.584.285l.207-2.93 5.333-4.816c.232-.206-.05-.32-.36-.114l-6.59 4.148-2.837-.887c-.617-.193-.63-.617.13-.915l11.074-4.268c.513-.186.962.12.76.993z"/>
+                  </svg>
+                  Telegram
+                </a>
+
+                {/* Email */}
+                <a 
+                  href={`mailto:?subject=${encodeURIComponent(`Invitație călătorie ${name}`)}&body=${getInviteData().encodedText}`}
+                  className="p-4 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/20 dark:hover:bg-purple-950/40 border border-purple-100 dark:border-purple-900/30 rounded-2xl flex flex-col items-center justify-center gap-2 text-purple-600 dark:text-purple-400 transition-all font-bold text-xs tracking-wider"
+                >
+                  <Mail className="w-5 h-5" />
+                  Email
+                </a>
+              </div>
+
+              {/* Zona de copiere rapidă în interiorul modalei */}
+              <button 
+                type="button"
+                onClick={handleCopyInviteLink}
+                className="w-full bg-blue-600 text-white p-2.5 rounded-xl font-bold text-xs transition-all active:scale-95 shrink-0 shadow-md flex items-center justify-center gap-3"
+              >
+                <LinkIcon className="w-4 h-4" />
+                <span className="text-md font-bold text-white truncate max-w-[240px]">Copiază link-ul de invitație</span>
+              </button>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -251,9 +347,10 @@ export function NewTrip() {
                 )}
               </div>
 
+              {/* ACUM DESCHIDE MODALA DE SOCIAL SHARE */}
               <button
                 type="button"
-                onClick={handleCopyInviteLink}
+                onClick={() => setShowShareModal(true)}
                 className="bg-blue-600 text-white px-5 rounded-xl active:scale-95 transition-all flex items-center justify-center shadow-lg shadow-blue-500/20 border border-blue-400/20"
               >
                 <LinkIcon className="w-5 h-5" />

@@ -295,6 +295,7 @@ export function Explore() {
     } catch (e) { toast.error("Eroare salvare."); }
   };
 
+  // --- LOGICĂ ACTUALIZATĂ: TRIMITE TEXT + POZĂ + ID CONFIGURAT PENTRU REDIRECȚIONARE ---
   const handleConfirmSendToChat = async () => {
     if (!selectedAttraction || !auth.currentUser) return;
     try {
@@ -302,6 +303,7 @@ export function Explore() {
         senderId: auth.currentUser.uid,
         senderName: auth.currentUser.displayName || "Călător",
         text: `Uită-te la această locație: ${selectedAttraction.name}`,
+        imageUrl: selectedAttraction.image, // Trimite imaginea locației ca proprietate nativă de chat
         sharedAttractionId: selectedAttraction.id,
         sharedAttractionName: selectedAttraction.name,
         sharedAttractionImage: selectedAttraction.image,

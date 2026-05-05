@@ -24,7 +24,11 @@ export function SplashScreen() {
           transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
           className="w-24 h-24 bg-white/10 backdrop-blur-xl rounded-[2rem] flex items-center justify-center shadow-2xl border border-white/20"
         >
-          <Compass className="w-12 h-12 text-white" />
+          <img 
+            src="/logo.png" // Calea către fișierul tău PNG din folderul 'public'
+            alt="TravelWise Logo" 
+            className="w-12 h-12 object-contain" // Păstrează exact dimensiunile vechi ca să nu strici layout-ul
+          />
         </motion.div>
         
         <motion.h1 

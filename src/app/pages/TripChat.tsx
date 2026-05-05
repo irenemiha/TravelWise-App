@@ -41,6 +41,31 @@ export function TripChat() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isChatOpenRef = useRef<boolean>(true);
+
+  // Solicită permisiunea de notificare la deschiderea chatului
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
+    isChatOpenRef.current = true;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        isChatOpenRef.current = false;
+      } else {
+        isChatOpenRef.current = true;
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      isChatOpenRef.current = false;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   // 1. ASCULTĂM DATELE TRIP-ULUI ȘI MESAJELE
   useEffect(() => {
@@ -52,7 +77,7 @@ export function TripChat() {
         const data = snap.data();
         const cityName = (data.destination || 'travel').split(',')[0].trim();
         
-        // --- LOGICĂ IMAGINE BING (Identică cu Home/Planning) ---
+        // --- LOGICĂ IMAGINE BING ---
         const isBroken = !data.image || 
                          data.image === "" || 
                          data.image.includes("loremflickr") || 
@@ -62,7 +87,6 @@ export function TripChat() {
         let finalTripImage = data.image;
 
         if (isBroken) {
-          // Folosim w=400 h=400 pentru că e poză de profil (pătrată) și p=0 pentru margini
           finalTripImage = `https://tse1.mm.bing.net/th?q=${encodeURIComponent(cityName + " city travel landscape")}&w=400&h=400&c=1&p=0`;
         }
         
@@ -73,12 +97,27 @@ export function TripChat() {
     const messagesRef = collection(db, "trips", tripId, "messages");
     const q = query(messagesRef, orderBy("timestamp", "asc"));
 
+    let isFirstLoad = true;
+
     const unsubMessages = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as FirestoreMessage[];
       
+      if (!isFirstLoad && msgs.length > 0 && !isChatOpenRef.current) {
+        const lastMessage = msgs[msgs.length - 1];
+        const currentUserId = auth.currentUser?.uid;
+
+        if (lastMessage.senderId !== currentUserId && "Notification" in window && Notification.permission === "granted") {
+          new Notification(lastMessage.senderName, {
+            body: lastMessage.sharedAttractionId ? `📍 Atracție: ${lastMessage.text}` : lastMessage.text,
+            icon: "/favicon.ico"
+          });
+        }
+      }
+
+      isFirstLoad = false;
       setMessages(msgs);
       setLoading(false);
     });
@@ -161,13 +200,12 @@ export function TripChat() {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-950 transition-colors overflow-hidden">
-      {/* Header cu Poza de Profil a Grupului */}
+      {/* Header */}
       <div className="bg-gradient-to-r from-blue-950 via-purple-900 to-fuchsia-950 border-b dark:border-gray-800 sticky top-0 z-10 px-4 py-3 flex items-center gap-3 shadow-sm transition-colors">
         <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-white/70 hover:text-white active:scale-90 transition-all">
           <ArrowLeft className="w-6 h-6" />
         </button>
         
-        {/* POZA DE PROFIL GRUP - Am adăugat flex și object-cover pentru a asigura umplerea totală */}
         <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white/20 shrink-0 shadow-sm flex">
           <ImageWithFallback src={trip?.tripImage} alt={trip?.name} className="w-full h-full min-w-full min-h-full object-cover" />
         </div>
@@ -184,19 +222,34 @@ export function TripChat() {
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {messages.map((msg) => {
           const isMe = msg.senderId === auth.currentUser?.uid;
+          const isSharedCard = !!msg.sharedAttractionId;
+
           return (
             <div key={msg.id} className={`flex flex-col w-full ${isMe ? 'items-end' : 'items-start'}`}>
               {!isMe && <span className="text-[9px] text-gray-400 dark:text-gray-500 font-black uppercase tracking-widest ml-2 mb-1">{msg.senderName}</span>}
               
-              <div className={`max-w-[75%] rounded-2xl shadow-sm overflow-hidden ${
-                isMe ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-none border border-gray-100 dark:border-gray-700'
-              }`}>
-                {msg.imageUrl ? (
-                  <div className="p-1">
+              {/* MODIFICARE: Adăugat cursor-pointer, active status și redirecționare exactă pe ID-ul atracției distribuite */}
+              <div 
+                onClick={() => {
+                  if (isSharedCard) {
+                    navigate(`/explore/${tripId}#${msg.sharedAttractionId}`);
+                  }
+                }}
+                className={`max-w-[75%] rounded-2xl shadow-sm overflow-hidden transition-all ${
+                  isSharedCard ? 'cursor-pointer hover:opacity-90 active:scale-[0.99]' : ''
+                } ${
+                  isMe ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-none border border-gray-100 dark:border-gray-700'
+                }`}
+              >
+                {/* MODIFICARE CONȚINUT BULĂ: Randare combinată text + imagine pentru cărțile partajate */}
+                {msg.text && (
+                  <p className="p-3 text-sm font-medium leading-relaxed">{msg.text}</p>
+                )}
+                
+                {msg.imageUrl && (
+                  <div className={msg.text ? "px-1 pb-1" : "p-1"}>
                     <img src={msg.imageUrl} alt="Sent" className="w-full h-auto rounded-xl max-h-80 object-cover" />
                   </div>
-                ) : (
-                  <p className="p-3 text-sm font-medium leading-relaxed">{msg.text}</p>
                 )}
               </div>
               <span className="text-[8px] text-gray-400 font-bold mt-1 px-2">{formatFirestoreTime(msg.timestamp)}</span>

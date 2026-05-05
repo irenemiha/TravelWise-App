@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Bell, Calendar, MapPin, Users, Heart, Loader2 } from "lucide-react";
 import { Link } from "react-router";
 
@@ -14,7 +14,7 @@ import {
   updateDoc 
 } from "firebase/firestore";
 
-interface Notification {
+interface NotificationItem {
   id: string;
   type: "invite" | "update" | "vote" | "like";
   title: string;
@@ -25,10 +25,18 @@ interface Notification {
 }
 
 export function Notifications() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const isFirstLoadRef = useRef(true); // Folosit pentru a bloca push notifications la încărcarea inițială a listei vechi
 
-  // 1. ASCULTĂM NOTIFICĂRILE REALE DIN FIRESTORE
+  // Cere permisiunea pentru Push Notifications nativ în browser
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // 1. ASCULTĂM NOTIFICĂRILE REALE DIN FIRESTORE ȘI TRIGGERĂM PUSH
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) {
@@ -36,7 +44,6 @@ export function Notifications() {
       return;
     }
 
-    // Luăm doar notificările care aparțin userului logat, ordonate descrescător după timp
     const q = query(
       collection(db, "notifications"),
       where("userId", "==", user.uid),
@@ -47,8 +54,26 @@ export function Notifications() {
       const notifs = snapshot.docs.map(d => ({
         id: d.id,
         ...d.data()
-      })) as Notification[];
-      
+      })) as NotificationItem[];
+
+      // Verificăm dacă sunt documente noi modificate/adăugate în snapshot
+      if (!isFirstLoadRef.current) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === "added") {
+            const newNotif = change.doc.data() as NotificationItem;
+            
+            // Trimitem Push Notification doar dacă userul a acceptat permisiunea
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification(newNotif.title || "TravelWise", {
+                body: newNotif.description,
+                icon: "/favicon.ico", // Calea către logo-ul tău dacă ai unul
+              });
+            }
+          }
+        });
+      }
+
+      isFirstLoadRef.current = false;
       setNotifications(notifs);
       setLoading(false);
     });
@@ -78,7 +103,7 @@ export function Notifications() {
     return date.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' });
   };
 
-  const getIcon = (type: Notification["type"]) => {
+  const getIcon = (type: NotificationItem["type"]) => {
     switch (type) {
       case "invite": return <Users className="w-6 h-6 text-white" />;
       case "update": return <MapPin className="w-6 h-6 text-white" />;
@@ -88,7 +113,7 @@ export function Notifications() {
     }
   };
 
-  const getGradient = (type: Notification["type"]) => {
+  const getGradient = (type: NotificationItem["type"]) => {
     switch (type) {
       case "invite": return "bg-gradient-to-br from-blue-500 to-purple-600";
       case "update": return "bg-gradient-to-br from-green-400 to-emerald-600";
