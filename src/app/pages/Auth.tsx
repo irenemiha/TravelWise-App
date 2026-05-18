@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useLocation, useSearchParams } from "react-router"; // Adăugat useSearchParams
+import { useNavigate, useSearchParams } from "react-router"; 
 import { Compass, Mail, Lock, User, ChevronRight, Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -9,16 +9,13 @@ import {
   createUserWithEmailAndPassword, 
   updateProfile 
 } from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore"; // Adăugat getDoc
 
 export function Auth() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams(); // Citim direct din URL
+  const [searchParams] = useSearchParams(); 
   
-  // Verificăm dacă în URL scrie ?mode=signup
   const mode = searchParams.get("mode");
-
-  // Inițializăm isLogin: dacă mode e "signup", atunci isLogin e false
   const [isLogin, setIsLogin] = useState(mode !== "signup");
 
   const [email, setEmail] = useState("");
@@ -28,7 +25,6 @@ export function Auth() {
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Sincronizăm starea dacă userul schimbă între login/register în timp ce pagina e deschisă
   useEffect(() => {
     setIsLogin(searchParams.get("mode") !== "signup");
   }, [searchParams]);
@@ -40,25 +36,55 @@ export function Auth() {
 
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
+        // 1. Logare prin Firebase Auth
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+
+        // 2. Citire rol din Firestore Database
+        const userDocRef = doc(db, "users", user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+
+        if (userDocSnap.exists()) {
+          const userData = userDocSnap.data();
+          
+          if (userData.role === "admin") {
+            // Setăm stările locale de admin pentru securitate și meniuri
+            localStorage.setItem("isAdminLoggedIn", "true");
+            localStorage.setItem("userRole", "admin");
+            toast.success(`Acces autorizat: Panou Administrator!`);
+            navigate("/admin-dashboard");
+            return; // Oprim funcția aici ca să nu execute redirecționarea de jos
+          }
+        }
+
+        // Dacă nu este admin sau documentul nu conține rolul, este utilizator normal
+        localStorage.setItem("isAdminLoggedIn", "false");
+        localStorage.setItem("userRole", "user");
         toast.success("Te-ai conectat cu succes!");
+        navigate("/");
+
       } else {
+        // Înregistrare utilizator nou
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         await updateProfile(user, { displayName: name });
 
+        // Fiecare utilizator nou primește automat rolul de "user" în mod implicit
         await setDoc(doc(db, "users", user.uid), {
           uid: user.uid,
           name: name,
           email: email,
           photoURL: "",
+          role: "user", // Forțăm rolul default de user direct la scriere
           createdAt: serverTimestamp(),
           savedAttractions: []
         });
 
+        localStorage.setItem("isAdminLoggedIn", "false");
+        localStorage.setItem("userRole", "user");
         toast.success("Cont creat cu succes!");
+        navigate("/");
       }
-      navigate("/");
     } catch (error: any) {
       console.error("Eroare Firebase Auth:", error.code);
       switch (error.code) {

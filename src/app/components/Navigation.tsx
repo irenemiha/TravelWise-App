@@ -1,51 +1,76 @@
 import { Link, useLocation } from "react-router";
-import { Compass, User, PlusCircle, Bell, Loader2 } from "lucide-react";
+import { Compass, User, PlusCircle, Bell, LayoutDashboard, Users } from "lucide-react";
 import { useState, useEffect } from "react";
 
-// IMPORTURI FIREBASE
 import { db, auth } from "../../firebase";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
 
 export function Navigation() {
   const { pathname } = useLocation();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  // 1. ASCULTĂM NOTIFICĂRILE NECITITE ÎN TIMP REAL
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
+    // 1. ASCULTĂM ROLUL LOCAL PENTRU REDIRECȚIONARE MENIU
+    const checkAdminStatus = () => {
+      const adminStatus = localStorage.getItem("isAdminLoggedIn") === "true";
+      setIsAdmin(adminStatus);
+    };
 
-    const q = query(
-      collection(db, "notifications"),
-      where("userId", "==", user.uid),
-      where("read", "==", false)
-    );
+    checkAdminStatus();
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setUnreadCount(snapshot.size);
+    // Re-verificăm starea când se schimbă utilizatorul sau ruta
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        checkAdminStatus();
+        
+        // 2. ASCULTĂM NOTIFICĂRILE NECITITE ÎN TIMP REAL (Doar pentru utilizatori normali)
+        const q = query(
+          collection(db, "notifications"),
+          where("userId", "==", user.uid),
+          where("read", "==", false)
+        );
+
+        const unsubscribeNotifications = onSnapshot(q, (snapshot) => {
+          setUnreadCount(snapshot.size);
+        });
+
+        return () => unsubscribeNotifications();
+      } else {
+        setUnreadCount(0);
+      }
     });
 
-    return () => unsubscribe();
-  }, []);
+    return () => unsubscribeAuth();
+  }, [pathname]);
 
-  const NAV_ITEMS = [
-    { path: "/", label: "Călătorii", icon: Compass },
-    { path: "/new-trip", label: "Adaugă", icon: PlusCircle },
-    { 
-      path: "/notifications", 
-      label: "Notificări", 
-      icon: Bell, 
-      badgeCount: unreadCount 
-    },
-    { path: "/profile", label: "Profil", icon: User },
-  ];
+  // --- CONFIGURARE DINAMICĂ VECTOR ELEMENTE NAVIGARE ---
+  const NAV_ITEMS = isAdmin
+    ? [
+        { path: "/admin-dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { path: "/admin-users", label: "Users", icon: Users },
+        { path: "/admin-trips", label: "Călătorii", icon: Compass },
+        { path: "/profile", label: "Profil", icon: User },
+      ]
+    : [
+        { path: "/", label: "Călătorii", icon: Compass },
+        { path: "/new-trip", label: "Adaugă", icon: PlusCircle },
+        { 
+          path: "/notifications", 
+          label: "Notificări", 
+          icon: Bell, 
+          badgeCount: unreadCount 
+        },
+        { path: "/profile", label: "Profil", icon: User },
+      ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-r from-blue-950 via-purple-900 to-fuchsia-950 border-t border-white/10 pb-safe shadow-[0_-8px_30px_rgba(0,0,0,0.4)] transition-colors">
       <div className="flex justify-between items-center h-16 max-w-md mx-auto px-6">
         {NAV_ITEMS.map((item) => {
-          // Logica de Active îmbunătățită:
-          // Dacă e "/" trebuie să fie fix "/", altfel verificăm dacă path-ul începe cu ruta respectivă
+          // Logica de Active extinsă: pentru "/" trebuie să fie exact "/", 
+          // iar pentru admin-dashboard să nu prindă parțial alte rute
           const isActive = item.path === "/" 
             ? pathname === "/" 
             : pathname.startsWith(item.path);
@@ -70,6 +95,7 @@ export function Navigation() {
                   strokeWidth={isActive ? 2.5 : 2}
                 />
                 
+                {/* Afișăm badge doar dacă există (valabil pentru utilizatorii normali) */}
                 {item.badgeCount && item.badgeCount > 0 ? (
                   <span className="absolute -top-1.5 -right-1.5 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white ring-2 ring-blue-950 animate-in zoom-in duration-300">
                     {item.badgeCount > 9 ? "9+" : item.badgeCount}
