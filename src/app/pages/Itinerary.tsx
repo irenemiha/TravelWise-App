@@ -15,7 +15,9 @@ import {
   ArrowLeft,
   Plus,
   Loader2,
-  Edit2
+  Edit2,
+  ThumbsUp,
+  ThumbsDown
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -32,7 +34,8 @@ import {
   updateDoc, 
   where, 
   getDocs, 
-  writeBatch 
+  writeBatch,
+  setDoc
 } from "firebase/firestore";
 
 export interface Activity {
@@ -63,6 +66,7 @@ export function Itinerary() {
   const [loading, setLoading] = useState(true);
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "member">("member"); 
   const [isDownloaded, setIsDownloaded] = useState(false);
+  const [votesData, setVotesData] = useState<{[key: string]: any}>({});
 
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
@@ -113,6 +117,23 @@ export function Itinerary() {
       }
     });
 
+    // Preluăm colecția globală de voturi din trip
+    const votesRef = collection(db, "trips", tripId, "attractionVotes");
+    const unsubVotes = onSnapshot(votesRef, (snapshot) => {
+      const votesMap: any = {};
+      snapshot.docs.forEach(doc => { votesMap[doc.id] = doc.data(); });
+      setVotesData(votesMap);
+    });
+
+    return () => {
+      unsubTrip();
+      unsubVotes();
+    };
+  }, [tripId]);
+
+  useEffect(() => {
+    if (!tripId) return;
+
     const itineraryRef = collection(db, "trips", tripId, "itinerary");
     const q = query(itineraryRef, orderBy("time", "asc"));
 
@@ -135,21 +156,64 @@ export function Itinerary() {
         grouped[act.day].push(act);
       });
 
-      const formattedItinerary: ItineraryDay[] = Object.keys(grouped).map(dayNum => ({
-        day: parseInt(dayNum),
-        date: `Ziua ${dayNum}`,
-        activities: grouped[parseInt(dayNum)]
-      })).sort((a, b) => a.day - b.day);
+      const formattedItinerary: ItineraryDay[] = Object.keys(grouped).map(dayNum => {
+        const dayActivities = grouped[parseInt(dayNum)] || [];
+
+        // ALGORITM DE PRIORITIZARE: Sortează descrescător după scorul de voturi (Like - Dislike)
+        const sortedActivities = [...dayActivities].sort((a, b) => {
+          const voteA = votesData[a.id] || { up: 0, down: 0 };
+          const voteB = votesData[b.id] || { up: 0, down: 0 };
+          const scoreA = (voteA.up || 0) - (voteA.down || 0);
+          const scoreB = (voteB.up || 0) - (voteB.down || 0);
+          
+          if (scoreB === scoreA) {
+            return (a.time || "").localeCompare(b.time || "");
+          }
+          return scoreB - scoreA;
+        });
+
+        return {
+          day: parseInt(dayNum),
+          date: `Ziua ${dayNum}`,
+          activities: sortedActivities
+        };
+      }).sort((a, b) => a.day - b.day);
 
       setItinerary(formattedItinerary);
       setLoading(false);
     });
 
-    return () => {
-      unsubTrip();
-      unsubItinerary();
-    };
-  }, [tripId]);
+    return () => unsubItinerary();
+  }, [tripId, votesData]);
+
+  // Funcția nativă de votare (Like / Dislike) identică cu cea din Explore.tsx
+  const handleVote = async (activityId: string, type: "up" | "down") => {
+    if (!auth.currentUser || !tripId) return;
+    const userId = auth.currentUser.uid;
+    const voteDocRef = doc(db, "trips", tripId, "attractionVotes", activityId);
+    
+    const currentData = votesData[activityId] || { up: 0, down: 0, voters: {} };
+    const previousVote = currentData.voters?.[userId] || null;
+    
+    let newUp = currentData.up || 0;
+    let newDown = currentData.down || 0;
+    let newVoters = { ...(currentData.voters || {}) };
+
+    if (previousVote === type) { 
+      newUp = type === "up" ? newUp - 1 : newUp; 
+      newDown = type === "down" ? newDown - 1 : newDown; 
+      delete newVoters[userId]; 
+      toast.info("Vot retras.");
+    } else {
+      if (previousVote === "up") newUp--; 
+      if (previousVote === "down") newDown--;
+      if (type === "up") newUp++; else newDown++;
+      newVoters[userId] = type;
+      toast.success(type === "up" ? "Îți place această activitate!" : "Nu îți place această activitate.");
+    }
+    
+    await setDoc(voteDocRef, { up: Math.max(0, newUp), down: Math.max(0, newDown), voters: newVoters });
+  };
 
   const openEditModal = (activity: Activity) => {
     setEditingActivity({
@@ -222,7 +286,7 @@ export function Itinerary() {
           </button>
         </div>
 
-        {/* Sumar Static (Zile & Activități - image_f96f50.png) */}
+        {/* Sumar Static (Zile & Activități) */}
         <div className="grid grid-cols-2 gap-4 w-full mb-8">
           <div className="bg-white dark:bg-gray-900 p-5 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center">
             <div className="flex items-center gap-2 mb-2">
@@ -251,7 +315,7 @@ export function Itinerary() {
           {itinerary.map((day, dayIndex) => (
             <div key={day.day} className="w-full flex flex-col items-center gap-6">
               
-              {/* HEADER DE ZI NOU (image_f973ca.png) */}
+              {/* HEADER DE ZI NOU */}
               <div className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white p-6 rounded-[1.5rem] w-full flex flex-col items-center relative text-center shadow-md">               
                 {currentUserRole === "admin" && (
                   <button 
@@ -265,7 +329,6 @@ export function Itinerary() {
                 <div className="text-sm font-medium opacity-90 mb-1">Ziua {day.day}</div>
                 <div className="text-2xl font-bold mb-3">{formatCalendarDate(day.day)}</div>
                 
-                {/* Capsulă info centrală cu opacitate */}
                 <div className="bg-black/15 border border-white/10 px-6 py-2.5 rounded-xl w-full max-w-[240px] flex flex-col items-center gap-0.5">
                   <span className="text-xs font-semibold opacity-95">
                     {day.activities.length} {day.activities.length === 1 ? "activitate" : "activități"}
@@ -276,54 +339,85 @@ export function Itinerary() {
                 </div>
               </div>
 
-              {/* LISTA DE CARDURI MINIMALISTE DIN INTERIORUL ZILEI */}
+              {/* LISTA DE CARDURI DIN INTERIORUL ZILEI */}
               <div className="w-full space-y-6 flex flex-col items-center">
-                {day.activities.map((activity) => (
-                  <div key={activity.id} className="w-full bg-white dark:bg-gray-900 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden relative group max-w-sm">
-                    
-                    {/* Butoane edit/șterge absolute în colțul dreapta-sus al imaginii (image_f97e93.png) */}
-                    {currentUserRole === "admin" && (
-                      <div className="absolute top-3 right-3 z-20 flex gap-1.5">
-                        <button 
-                          onClick={() => openEditModal(activity)}
-                          className="w-8 h-8 bg-white/90 hover:bg-white shadow-md rounded-full flex items-center justify-center text-blue-600 transition-all active:scale-90"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button 
-                          onClick={() => setDeleteDialog({ isOpen: true, type: "activity", dayIndex, activityId: activity.id })}
-                          className="w-8 h-8 bg-white/90 hover:bg-white shadow-md rounded-full flex items-center justify-center text-red-500 transition-all active:scale-90"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
+                {day.activities.map((activity) => {
+                  // Mapăm dinamic voturile curente pentru fiecare card
+                  const persistentVote = votesData[activity.id] || { up: 0, down: 0, voters: {} };
+                  const userVote = persistentVote.voters?.[auth.currentUser?.uid || ""] || null;
 
-                    {/* Imaginea */}
-                    <div className="h-48 w-full relative">
-                      <ImageWithFallback src={activity.image} alt={activity.name} className="w-full h-full object-cover" />
-                    </div>
-
-                    {/* Conținut textual simplu și curat */}
-                    <div className="p-5 flex flex-col items-center text-center w-full">
-                      <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1 px-2">{activity.name}</h3>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mb-4 px-4 line-clamp-2">{activity.description}</p>
+                  return (
+                    <div key={activity.id} className="w-full bg-white dark:bg-gray-900 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden relative group max-w-sm">
                       
-                      {/* Sub-containerul pentru locație, durată și preț */}
-                      <div className="w-full bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 border border-gray-100/50 dark:border-gray-800/80">
-                        <div className="flex items-center justify-center gap-1.5 text-blue-600 dark:text-blue-400 mb-2.5">
-                          <MapPin className="w-4 h-4 shrink-0" />
-                          <span className="text-xs font-bold truncate max-w-[200px]">{activity.location}</span>
+                      {/* Butoane edit/șterge absolute în colțul dreapta-sus al imaginii */}
+                      {currentUserRole === "admin" && (
+                        <div className="absolute top-3 right-3 z-20 flex gap-1.5">
+                          <button 
+                            onClick={() => openEditModal(activity)}
+                            className="w-8 h-8 bg-white/90 hover:bg-white shadow-md rounded-full flex items-center justify-center text-blue-600 transition-all active:scale-90"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            onClick={() => setDeleteDialog({ isOpen: true, type: "activity", dayIndex, activityId: activity.id })}
+                            className="w-8 h-8 bg-white/90 hover:bg-white shadow-md rounded-full flex items-center justify-center text-red-500 transition-all active:scale-90"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                        <div className="flex justify-center items-center gap-6 text-xs font-semibold text-gray-500 border-t border-gray-200/50 dark:border-gray-700/50 pt-2">
-                          <div className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-purple-500" /> {activity.time}</div>
-                          <div className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5 text-green-500" /> {activity.price}</div>
-                        </div>
-                      </div>
-                    </div>
+                      )}
 
-                  </div>
-                ))}
+                      {/* Imaginea */}
+                      <div className="h-48 w-full relative">
+                        <ImageWithFallback src={activity.image} alt={activity.name} className="w-full h-full object-cover" />
+                      </div>
+
+                      {/* Conținut textual */}
+                      <div className="p-5 flex flex-col items-center text-center w-full">
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1 px-2">{activity.name}</h3>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mb-4 px-4 line-clamp-2">{activity.description}</p>
+                        
+                        {/* Sub-containerul pentru locație, durată și preț */}
+                        <div className="w-full bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 border border-gray-100/50 dark:border-gray-800/80 mb-4">
+                          <div className="flex items-center justify-center gap-1.5 text-blue-600 dark:text-blue-400 mb-2.5">
+                            <MapPin className="w-4 h-4 shrink-0" />
+                            <span className="text-xs font-bold truncate max-w-[200px]">{activity.location}</span>
+                          </div>
+                          <div className="flex justify-center items-center gap-6 text-xs font-semibold text-gray-500 border-t border-gray-200/50 dark:border-gray-700/50 pt-2">
+                            <div className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-purple-500" /> {activity.time}</div>
+                            <div className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5 text-green-500" /> {activity.price}</div>
+                          </div>
+                        </div>
+
+                        {/* NOU: ADĂUGAT BUTOANELE SIMETRICE DE LIKE / DISLIKE (CONSECVENT CU EXPLORE) */}
+                        <div className="flex gap-2 w-full">
+                          <button 
+                            onClick={() => handleVote(activity.id, "up")} 
+                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all font-bold text-sm ${
+                              userVote === "up" 
+                                ? "bg-green-500 text-white shadow-sm" 
+                                : "bg-gray-50 dark:bg-gray-800 text-gray-500 hover:bg-green-50 dark:hover:bg-green-950/20"
+                            }`}
+                          >
+                            <ThumbsUp className="w-4 h-4" /> {persistentVote.up || 0}
+                          </button>
+                          <button 
+                            onClick={() => handleVote(activity.id, "down")} 
+                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all font-bold text-sm ${
+                              userVote === "down" 
+                                ? "bg-red-500 text-white shadow-sm" 
+                                : "bg-gray-50 dark:bg-gray-800 text-gray-500 hover:bg-red-50 dark:hover:bg-red-950/20"
+                            }`}
+                          >
+                            <ThumbsDown className="w-4 h-4" /> {persistentVote.down || 0}
+                          </button>
+                        </div>
+
+                      </div>
+
+                    </div>
+                  );
+                })}
               </div>
 
             </div>
@@ -331,7 +425,7 @@ export function Itinerary() {
         </div>
       </div>
 
-      {/* POP-UP / MODAL DEDICAT PENTRU EDITARE ACTIVITATE (image_f8216.png) */}
+      {/* POP-UP / MODAL DEDICAT PENTRU EDITARE ACTIVITATE */}
       {isEditModalOpen && editingActivity && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 w-full max-w-xs border border-gray-100 dark:border-gray-800 shadow-2xl flex flex-col items-center text-center">
@@ -339,7 +433,6 @@ export function Itinerary() {
             <h3 className="text-md font-bold text-gray-900 dark:text-white mb-5">Editează Activitatea</h3>
             
             <div className="space-y-3 w-full mb-6">
-              {/* Input Nume */}
               <input 
                 type="text" 
                 placeholder="Nume activitate"
@@ -351,7 +444,6 @@ export function Itinerary() {
                 className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
               />
               
-              {/* Input Descriere */}
               <input 
                 type="text" 
                 placeholder="Descriere"
@@ -363,7 +455,6 @@ export function Itinerary() {
                 className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
               />
               
-              {/* Row pentru Timp și Preț */}
               <div className="grid grid-cols-2 gap-2">
                 <input 
                   type="text" 
@@ -388,7 +479,6 @@ export function Itinerary() {
               </div>
             </div>
 
-            {/* Butoanele inferioare cu iconițe deduse din design */}
             <div className="flex gap-2 w-full">
               <button 
                 onClick={() => { setIsEditModalOpen(false); setEditingActivity(null); }} 

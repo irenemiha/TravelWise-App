@@ -21,7 +21,7 @@ import {
   History,
   LayoutGrid,
   Send,
-  CheckCircle2 // Adăugat pentru iconița de succes la „Adăugat”
+  CheckCircle2
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useState, useEffect, useRef } from "react";
