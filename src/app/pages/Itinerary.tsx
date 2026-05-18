@@ -8,20 +8,14 @@ import {
   DollarSign,
   Download,
   Share2,
-  ChevronRight,
-  Coffee,
-  Utensils,
-  Camera,
   Trash2,
-  Edit2,
   X,
   Save,
   CheckCircle2,
   ArrowLeft,
   Plus,
-  Map as MapIcon,
   Loader2,
-  ExternalLink
+  Edit2
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -82,11 +76,30 @@ export function Itinerary() {
     activityId: null,
   });
 
+  // State-ul pentru Pop-up-ul de editare dedicat (Modal)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingActivity, setEditingActivity] = useState<{
-    dayIndex: number;
     activityId: string;
     data: Partial<Activity>;
   } | null>(null);
+
+  const formatCalendarDate = (dayNum: number) => {
+    if (!trip?.startDate) return `Ziua ${dayNum}`;
+    try {
+      const start = new Date(trip.startDate);
+      start.setDate(start.getDate() + (dayNum - 1));
+      return start.toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
+    } catch (e) {
+      return `Ziua ${dayNum}`;
+    }
+  };
+
+  const calculateDayTimeRange = (activities: Activity[]) => {
+    if (!activities || activities.length === 0) return "--:-- - --:--";
+    const startTime = activities[0].time || "00:00";
+    const endTime = activities[activities.length - 1].time || "00:00";
+    return `${startTime} - ${endTime}`;
+  };
 
   useEffect(() => {
     if (!tripId) return;
@@ -107,8 +120,6 @@ export function Itinerary() {
       const allActivities = snapshot.docs.map(d => {
         const data = d.data();
         const activityId = d.id;
-        const seed = activityId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        // Imagine Bing fără margini (p=0)
         const activityImage = `https://tse1.mm.bing.net/th?q=${encodeURIComponent(data.name || 'place')}&w=800&h=600&c=1&p=0`;
 
         return { 
@@ -117,7 +128,7 @@ export function Itinerary() {
           image: data.image || activityImage 
         } as Activity;
       });
-      
+
       const grouped: { [key: number]: Activity[] } = {};
       allActivities.forEach(act => {
         if (!grouped[act.day]) grouped[act.day] = [];
@@ -136,46 +147,26 @@ export function Itinerary() {
 
     return () => {
       unsubTrip();
-      unsubItinerary(); // CORECTAT: Era unsubMessages
+      unsubItinerary();
     };
   }, [tripId]);
 
-  // --- LOGICA HARTA (CORECTATĂ) ---
-  const handleOpenFullMap = () => {
-    const cityName = trip?.destination?.split(',')[0].trim() || "";
-    const allLocations = itinerary.flatMap(day => 
-      day.activities.map(act => `${act.location}, ${cityName}`)
-    );
-
-    if (allLocations.length === 0) {
-      toast.error("Adaugă atracții pentru a genera ruta!");
-      return;
-    }
-
-    const origin = encodeURIComponent(allLocations[0]);
-    const destination = encodeURIComponent(allLocations[allLocations.length - 1]);
-    const waypoints = allLocations.slice(1, -1).map(loc => encodeURIComponent(loc)).join('|');
-    
-    // URL OFICIAL GOOGLE MAPS DIRECTIONS
-    const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}&travelmode=walking`;
-    window.open(mapsUrl, '_blank');
-  };
-
-  const startEditing = (dayIndex: number, activity: Activity) => {
+  const openEditModal = (activity: Activity) => {
     setEditingActivity({
-      dayIndex,
       activityId: activity.id,
       data: { ...activity }
     });
+    setIsEditModalOpen(true);
   };
 
-  const saveEdit = async () => {
+  const saveActivityEdit = async () => {
     if (editingActivity && tripId) {
       try {
         const actRef = doc(db, "trips", tripId, "itinerary", editingActivity.activityId);
         await updateDoc(actRef, editingActivity.data);
+        setIsEditModalOpen(false);
         setEditingActivity(null);
-        toast.success("Actualizat!");
+        toast.success("Activitatea a fost salvată!");
       } catch (e) {
         toast.error("Eroare la salvare.");
       }
@@ -202,23 +193,8 @@ export function Itinerary() {
     setDeleteDialog({ isOpen: false, type: null, dayIndex: null, activityId: null });
   };
 
-  const getActivityIcon = (type: Activity["type"]) => {
-    switch (type) {
-      case "meal": return <Utensils className="w-5 h-5" />;
-      case "break": return <Coffee className="w-5 h-5" />;
-      case "attraction": return <Camera className="w-5 h-5" />;
-      default: return <MapPin className="w-5 h-5" />;
-    }
-  };
-
-  const getActivityColor = (type: Activity["type"]) => {
-    switch (type) {
-      case "meal": return "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400";
-      case "break": return "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400";
-      case "attraction": return "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400";
-      default: return "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300";
-    }
-  };
+  const totalDaysCount = itinerary.length;
+  const totalActivitiesCount = itinerary.reduce((acc, day) => acc + day.activities.length, 0);
 
   if (loading) return <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950"><Loader2 className="animate-spin text-blue-600" /></div>;
 
@@ -234,7 +210,8 @@ export function Itinerary() {
       </header>
 
       <div className="w-full max-w-md mx-auto p-6 flex flex-col items-center">
-        <div className="flex gap-2 justify-center w-full mb-4">
+        {/* Butoane superioare standard */}
+        <div className="flex gap-2 justify-center w-full mb-6">
           <button onClick={() => { setIsDownloaded(true); toast.success("Salvat!"); setTimeout(() => setIsDownloaded(false), 2000); }} className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-bold px-4 py-2.5 rounded-xl flex-1 text-sm shadow-sm flex items-center justify-center gap-2">
             {isDownloaded ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Download className="w-4 h-4" />}
             <span>Salvat</span>
@@ -245,104 +222,197 @@ export function Itinerary() {
           </button>
         </div>
 
-        <Link to={`/explore/${tripId}`} className="w-full mb-6 bg-blue-600 text-white font-bold px-6 py-4 rounded-2xl flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all">
+        {/* Sumar Static (Zile & Activități - image_f96f50.png) */}
+        <div className="grid grid-cols-2 gap-4 w-full mb-8">
+          <div className="bg-white dark:bg-gray-900 p-5 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center">
+            <div className="flex items-center gap-2 mb-2">
+              <Calendar className="w-4 h-4 text-blue-600" />
+              <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Total zile</span>
+            </div>
+            <div className="text-2xl font-black text-gray-900 dark:text-white">{totalDaysCount}</div>
+          </div>
+          
+          <div className="bg-white dark:bg-gray-900 p-5 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center">
+            <div className="flex items-center gap-2 mb-2">
+              <MapPin className="w-4 h-4 text-purple-600" />
+              <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Activități</span>
+            </div>
+            <div className="text-2xl font-black text-gray-900 dark:text-white">{totalActivitiesCount}</div>
+          </div>
+        </div>
+
+        <Link to={`/explore/${tripId}`} className="w-full mb-10 bg-blue-600 text-white font-bold px-6 py-4 rounded-2xl flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all">
           <Plus className="w-5 h-5" />
           Adaugă atracții
         </Link>
 
-        <div className="space-y-8 w-full flex flex-col items-center">
+        {/* Listă Zile Itinerariu */}
+        <div className="space-y-12 w-full flex flex-col items-center">
           {itinerary.map((day, dayIndex) => (
-            <div key={day.day} className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm overflow-hidden w-full border border-gray-100 dark:border-gray-800">
-              <div className="bg-gradient-to-r from-blue-950 via-purple-900 to-fuchsia-950 text-white p-5 flex items-center justify-between">               
-                <div className="text-xl font-bold tracking-widest uppercase">Ziua {day.day}</div>
+            <div key={day.day} className="w-full flex flex-col items-center gap-6">
+              
+              {/* HEADER DE ZI NOU (image_f973ca.png) */}
+              <div className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white p-6 rounded-[1.5rem] w-full flex flex-col items-center relative text-center shadow-md">               
                 {currentUserRole === "admin" && (
-                  <button onClick={() => setDeleteDialog({ isOpen: true, type: "day", dayIndex, activityId: null })} className="p-2 bg-red-500/20 rounded-xl">
-                    <Trash2 className="w-4 h-4 text-red-500" />
+                  <button 
+                    onClick={() => setDeleteDialog({ isOpen: true, type: "day", dayIndex, activityId: null })} 
+                    className="absolute top-4 right-4 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-all"
+                  >
+                    <Trash2 className="w-4 h-4 text-white" />
                   </button>
                 )}
+                
+                <div className="text-sm font-medium opacity-90 mb-1">Ziua {day.day}</div>
+                <div className="text-2xl font-bold mb-3">{formatCalendarDate(day.day)}</div>
+                
+                {/* Capsulă info centrală cu opacitate */}
+                <div className="bg-black/15 border border-white/10 px-6 py-2.5 rounded-xl w-full max-w-[240px] flex flex-col items-center gap-0.5">
+                  <span className="text-xs font-semibold opacity-95">
+                    {day.activities.length} {day.activities.length === 1 ? "activitate" : "activități"}
+                  </span>
+                  <span className="text-base font-bold tracking-wide">
+                    {calculateDayTimeRange(day.activities)}
+                  </span>
+                </div>
               </div>
 
-              <div className="p-4 space-y-10 flex flex-col items-center">
-                {day.activities.map((activity) => {
-                  const isEditing = editingActivity?.activityId === activity.id;
-                  return (
-                    <div key={activity.id} className="w-full flex flex-col items-center">
-                      <div className="flex flex-col items-center w-full gap-2 mb-4">
-                        <div className={`w-12 h-12 rounded-full ${getActivityColor(activity.type)} flex items-center justify-center shadow-lg`}>
-                          {getActivityIcon(activity.type)}
-                        </div>
-                        <div className="text-md font-black text-blue-600 dark:text-blue-400">{activity.time}</div>
+              {/* LISTA DE CARDURI MINIMALISTE DIN INTERIORUL ZILEI */}
+              <div className="w-full space-y-6 flex flex-col items-center">
+                {day.activities.map((activity) => (
+                  <div key={activity.id} className="w-full bg-white dark:bg-gray-900 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden relative group max-w-sm">
+                    
+                    {/* Butoane edit/șterge absolute în colțul dreapta-sus al imaginii (image_f97e93.png) */}
+                    {currentUserRole === "admin" && (
+                      <div className="absolute top-3 right-3 z-20 flex gap-1.5">
+                        <button 
+                          onClick={() => openEditModal(activity)}
+                          className="w-8 h-8 bg-white/90 hover:bg-white shadow-md rounded-full flex items-center justify-center text-blue-600 transition-all active:scale-90"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button 
+                          onClick={() => setDeleteDialog({ isOpen: true, type: "activity", dayIndex, activityId: activity.id })}
+                          className="w-8 h-8 bg-white/90 hover:bg-white shadow-md rounded-full flex items-center justify-center text-red-500 transition-all active:scale-90"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
+                    )}
 
-                      <div className="w-full bg-white dark:bg-gray-800/40 rounded-3xl shadow-md border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col items-center">
-                        {!isEditing && (
-                          <div className="w-full h-40 flex relative">
-                            <ImageWithFallback src={activity.image} alt={activity.name} className="w-full h-full min-w-full min-h-full object-cover" />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                          </div>
-                        )}
+                    {/* Imaginea */}
+                    <div className="h-48 w-full relative">
+                      <ImageWithFallback src={activity.image} alt={activity.name} className="w-full h-full object-cover" />
+                    </div>
 
-                        <div className="p-5 w-full flex flex-col items-center">
-                          {isEditing ? (
-                            <div className="w-full space-y-3">
-                              <input type="text" value={editingActivity.data.name} onChange={(e) => setEditingActivity({...editingActivity, data: {...editingActivity.data, name: e.target.value}})} className="w-full bg-gray-50 dark:bg-gray-900 border p-3 rounded-xl font-bold dark:text-white" />
-                              <div className="flex gap-2">
-                                <button onClick={() => setEditingActivity(null)} className="flex-1 p-3 bg-gray-100 rounded-xl">X</button>
-                                <button onClick={saveEdit} className="flex-1 p-3 bg-blue-600 text-white rounded-xl">OK</button>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2">{activity.name}</h3>
-                              <div className="w-full bg-gray-50 dark:bg-gray-800 p-4 rounded-2xl space-y-3">
-                                <a 
-                                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activity.location + " " + (trip?.destination?.split(',')[0] || ""))}`} 
-                                  target="_blank" rel="noopener noreferrer" 
-                                  className="flex items-center justify-center gap-2 group"
-                                >
-                                  <MapPin className="w-5 h-5 text-blue-600 fill-current" />
-                                  <span className="text-lg text-blue-600 dark:text-blue-300 font-extrabold group-hover:underline">{activity.location}</span>
-                                </a>
-                                <div className="flex justify-center gap-6 border-t dark:border-gray-700 pt-3 text-[12px] font-black uppercase text-gray-500">
-                                  <div className="flex items-center gap-1"><Clock className="w-4 h-4 text-purple-600" /> {activity.duration}</div>
-                                  <div className="flex items-center gap-1"><DollarSign className="w-4 h-4 text-green-600" /> {activity.price}</div>
-                                </div>
-                              </div>
-                              {currentUserRole === "admin" && (
-                                <div className="flex gap-2 mt-4">
-                                  <button onClick={() => startEditing(dayIndex, activity)} className="flex-1 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-full text-xs font-black uppercase">Edit</button>
-                                  <button onClick={() => setDeleteDialog({ isOpen: true, type: "activity", dayIndex, activityId: activity.id })} className="flex-1 px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-full text-xs font-black uppercase">Șterge</button>
-                                </div>
-                              )}
-                            </>
-                          )}
+                    {/* Conținut textual simplu și curat */}
+                    <div className="p-5 flex flex-col items-center text-center w-full">
+                      <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1 px-2">{activity.name}</h3>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mb-4 px-4 line-clamp-2">{activity.description}</p>
+                      
+                      {/* Sub-containerul pentru locație, durată și preț */}
+                      <div className="w-full bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 border border-gray-100/50 dark:border-gray-800/80">
+                        <div className="flex items-center justify-center gap-1.5 text-blue-600 dark:text-blue-400 mb-2.5">
+                          <MapPin className="w-4 h-4 shrink-0" />
+                          <span className="text-xs font-bold truncate max-w-[200px]">{activity.location}</span>
+                        </div>
+                        <div className="flex justify-center items-center gap-6 text-xs font-semibold text-gray-500 border-t border-gray-200/50 dark:border-gray-700/50 pt-2">
+                          <div className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-purple-500" /> {activity.time}</div>
+                          <div className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5 text-green-500" /> {activity.price}</div>
                         </div>
                       </div>
                     </div>
-                  );
-                })}
+
+                  </div>
+                ))}
               </div>
+
             </div>
           ))}
         </div>
       </div>
 
-      <div className="fixed bottom-22 w-full px-6 flex justify-center z-40">
-        <button onClick={handleOpenFullMap} className="w-full max-w-md bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-black py-5 rounded-2xl flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all uppercase tracking-widest text-[11px]">
-          <div className="relative flex items-center justify-center">
-            <span className="absolute h-full w-full rounded-full bg-blue-400 animate-ping opacity-75"></span>
-            <MapIcon className="w-5 h-5 relative z-10" />
-          </div>
-          <span>Vezi ruta pe hartă</span>
-        </button>
-      </div>
+      {/* POP-UP / MODAL DEDICAT PENTRU EDITARE ACTIVITATE (image_f8216.png) */}
+      {isEditModalOpen && editingActivity && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 w-full max-w-xs border border-gray-100 dark:border-gray-800 shadow-2xl flex flex-col items-center text-center">
+            
+            <h3 className="text-md font-bold text-gray-900 dark:text-white mb-5">Editează Activitatea</h3>
+            
+            <div className="space-y-3 w-full mb-6">
+              {/* Input Nume */}
+              <input 
+                type="text" 
+                placeholder="Nume activitate"
+                value={editingActivity.data.name || ""} 
+                onChange={(e) => setEditingActivity({
+                  ...editingActivity, 
+                  data: { ...editingActivity.data, name: e.target.value }
+                })} 
+                className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
+              />
+              
+              {/* Input Descriere */}
+              <input 
+                type="text" 
+                placeholder="Descriere"
+                value={editingActivity.data.description || ""} 
+                onChange={(e) => setEditingActivity({
+                  ...editingActivity, 
+                  data: { ...editingActivity.data, description: e.target.value }
+                })} 
+                className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
+              />
+              
+              {/* Row pentru Timp și Preț */}
+              <div className="grid grid-cols-2 gap-2">
+                <input 
+                  type="text" 
+                  placeholder="10:00"
+                  value={editingActivity.data.time || ""} 
+                  onChange={(e) => setEditingActivity({
+                    ...editingActivity, 
+                    data: { ...editingActivity.data, time: e.target.value }
+                  })} 
+                  className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
+                />
+                <input 
+                  type="text" 
+                  placeholder="Preț"
+                  value={editingActivity.data.price || ""} 
+                  onChange={(e) => setEditingActivity({
+                    ...editingActivity, 
+                    data: { ...editingActivity.data, price: e.target.value }
+                  })} 
+                  className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
+                />
+              </div>
+            </div>
 
-      <ConfirmDialog
-        isOpen={deleteDialog.isOpen}
-        title={deleteDialog.type === "day" ? "Șterge ziua" : "Șterge activitatea"}
-        message="Ești sigur? Acțiunea nu poate fi anulată."
-        onConfirm={confirmDelete}
-        onCancel={() => setDeleteDialog({ isOpen: false, type: null, dayIndex: null, activityId: null })}
+            {/* Butoanele inferioare cu iconițe deduse din design */}
+            <div className="flex gap-2 w-full">
+              <button 
+                onClick={() => { setIsEditModalOpen(false); setEditingActivity(null); }} 
+                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" /> Anulează
+              </button>
+              <button 
+                onClick={saveActivityEdit} 
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all"
+              >
+                <Save className="w-3.5 h-3.5" /> Salvează
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog 
+        isOpen={deleteDialog.isOpen} 
+        title={deleteDialog.type === "day" ? "Șterge ziua" : "Șterge activitatea"} 
+        message="Ești sigur? Acțiunea nu poate fi anulată." 
+        onConfirm={confirmDelete} 
+        onCancel={() => setDeleteDialog({ isOpen: false, type: null, dayIndex: null, activityId: null })} 
       />
     </div>
   );

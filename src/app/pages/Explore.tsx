@@ -20,7 +20,8 @@ import {
   Library,
   History,
   LayoutGrid,
-  Send
+  Send,
+  CheckCircle2 // Adăugat pentru iconița de succes la „Adăugat”
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useState, useEffect, useRef } from "react";
@@ -76,6 +77,9 @@ export function Explore() {
   const [votesData, setVotesData] = useState<{[key: string]: any}>({});
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+
+  // NOU: State care ține evidența numelor locațiilor deja adăugate în itinerariu
+  const [addedActivitiesNames, setAddedActivitiesNames] = useState<string[]>([]);
 
   const [addFormData, setAddFormData] = useState({
     targetTripId: tripId,
@@ -138,7 +142,19 @@ export function Explore() {
     return () => unsubVotes();
   }, [tripId]);
 
-  // --- LOGICĂ ACTUALIZATĂ PENTRU PRECIZIE LOCAȚII ---
+  // NOU: Listener în timp real pentru a prelua elementele existente în itinerariu
+  useEffect(() => {
+    if (!tripId) return;
+    const itineraryRef = collection(db, "trips", tripId, "itinerary");
+    
+    const unsubItineraryCheck = onSnapshot(itineraryRef, (snapshot) => {
+      const names = snapshot.docs.map(doc => doc.data().name);
+      setAddedActivitiesNames(names);
+    });
+
+    return () => unsubItineraryCheck();
+  }, [tripId]);
+
   useEffect(() => {
     if (!trip?.destination) return;
     const cityName = trip.destination.split(",")[0].trim();
@@ -165,7 +181,6 @@ export function Explore() {
         const { lat, lon } = geoData[0];
         
         const API_KEY = "6627c045fcd14d76b5b547c8f3c54d17";
-        // MODIFICARE: Cerc de 5km (5000m) + Bias proximity pentru a evita alte orașe
         const response = await fetch(
           `https://api.geoapify.com/v2/places?categories=tourism.attraction,catering.restaurant,entertainment.museum,heritage&filter=circle:${lon},${lat},5000&bias=proximity:${lon},${lat}&limit=50&lang=ro&apiKey=${API_KEY}`
         );
@@ -177,11 +192,9 @@ export function Explore() {
           return;
         }
 
-        // MODIFICARE: Filtrare strictă post-fetch pentru a asigura că orașul coincide
         const filteredFeatures = data.features.filter((f: any) => {
            const cityProp = f.properties.city || "";
            const countyProp = f.properties.county || "";
-           // Permitem atracția doar dacă proprietatea 'city' conține numele orașului căutat
            return cityProp.toLowerCase().includes(cityName.toLowerCase()) || 
                   countyProp.toLowerCase().includes(cityName.toLowerCase());
         });
@@ -200,7 +213,6 @@ export function Explore() {
             id: attractionId,
             name: cleanName,
             description: "Descoperă această locație superbă în " + cityName,
-            // Imagine optimizată Bing cu crop forțat (p=0)
             image: `https://tse1.mm.bing.net/th?q=${encodeURIComponent(cleanName + " " + cityName)}&w=1200&h=800&c=1&p=0`, 
             rating: parseFloat((4.2 + ((getDeterministicSeed(attractionId) % 8) / 10)).toFixed(1)),
             votes: { up: 0, down: 0 },
@@ -286,7 +298,7 @@ export function Explore() {
         day: addFormData.day,
         duration: addFormData.duration,
         price: selectedAttraction.price,
-        type: selectedAttraction.category === "Restaurant" ? "meal" : "attraction",
+        type: selectedAttraction.category === "Restaurante" ? "meal" : "attraction",
         image: selectedAttraction.image,
         addedBy: auth.currentUser.uid,
         createdAt: serverTimestamp()
@@ -295,7 +307,6 @@ export function Explore() {
     } catch (e) { toast.error("Eroare salvare."); }
   };
 
-  // --- LOGICĂ ACTUALIZATĂ: TRIMITE TEXT + POZĂ + ID CONFIGURAT PENTRU REDIRECȚIONARE ---
   const handleConfirmSendToChat = async () => {
     if (!selectedAttraction || !auth.currentUser) return;
     try {
@@ -303,7 +314,7 @@ export function Explore() {
         senderId: auth.currentUser.uid,
         senderName: auth.currentUser.displayName || "Călător",
         text: `Uită-te la această locație: ${selectedAttraction.name}`,
-        imageUrl: selectedAttraction.image, // Trimite imaginea locației ca proprietate nativă de chat
+        imageUrl: selectedAttraction.image, 
         sharedAttractionId: selectedAttraction.id,
         sharedAttractionName: selectedAttraction.name,
         sharedAttractionImage: selectedAttraction.image,
@@ -408,6 +419,10 @@ export function Explore() {
             ) : filteredAttractions.map((attr) => {
               const persistentVote = votesData[attr.id] || { up: 0, down: 0, voters: {} };
               const userVote = persistentVote.voters?.[auth.currentUser?.uid || ""] || null;
+              
+              // MODIFICAT: Verificăm dacă numele atracției curente se află deja în itinerariul preluat din Firestore
+              const isAlreadyAdded = addedActivitiesNames.includes(attr.name);
+
               return (
               <div id={attr.id} key={attr.id} className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-sm overflow-hidden border border-gray-100 dark:border-gray-800 hover:shadow-xl transition-all duration-300 scroll-mt-24">
                 <div className="relative h-64 w-full flex">
@@ -448,7 +463,20 @@ export function Explore() {
                   </div>
 
                   <div className="flex gap-2">
-                    <button onClick={() => handleOpenAddDialog(attr)} className="flex-1 py-4 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><CalendarPlus className="w-4 h-4" /> Adaugă</button>
+                    {/* MODIFICAT: Butonul își schimbă starea, culoarea și se blochează dacă atracția este deja în itinerariu */}
+                    <button 
+                      onClick={() => handleOpenAddDialog(attr)} 
+                      disabled={isAlreadyAdded}
+                      className={`flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+                        isAlreadyAdded 
+                          ? "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed shadow-none active:scale-100" 
+                          : "bg-gray-900 dark:bg-white text-white dark:text-gray-900"
+                      }`}
+                    >
+                      {isAlreadyAdded ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <CalendarPlus className="w-4 h-4" />} 
+                      {isAlreadyAdded ? "Adăugat" : "Adaugă"}
+                    </button>
+                    
                     <button onClick={() => handleOpenChatDialog(attr)} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><MessageCircle className="w-4 h-4" /> Chat</button>
                   </div>
                 </div>
