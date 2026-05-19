@@ -17,7 +17,9 @@ import {
   Loader2,
   Edit2,
   ThumbsUp,
-  ThumbsDown
+  ThumbsDown,
+  Wand2,
+  Map
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -35,7 +37,7 @@ import {
   where, 
   getDocs, 
   writeBatch,
-  setDoc
+  setDoc 
 } from "firebase/firestore";
 
 export interface Activity {
@@ -49,6 +51,8 @@ export interface Activity {
   type: "meal" | "attraction" | "break" | "transport";
   day: number;
   image?: string;
+  lat?: number;
+  lng?: number;
 }
 
 export interface ItineraryDay {
@@ -56,6 +60,52 @@ export interface ItineraryDay {
   date: string;
   activities: Activity[];
 }
+
+const getDistance = (act1: Activity, act2: Activity) => {
+  if (!act1.lat || !act1.lng || !act2.lat || !act2.lng) return 0;
+  const radlat1 = (Math.PI * act1.lat) / 180;
+  const radlat2 = (Math.PI * act2.lat) / 180;
+  const theta = act1.lng - act2.lng;
+  const radtheta = (Math.PI * theta) / 180;
+  let dist =
+    Math.sin(radlat1) * Math.sin(radlat2) +
+    Math.cos(radlat1) * Math.cos(radlat2) * Math.cos(radtheta);
+  if (dist > 1) dist = 1;
+  dist = Math.acos(dist);
+  dist = (dist * 180) / Math.PI;
+  return dist * 60 * 1.1515 * 1.609344;
+};
+
+const optimizeRouteByProximity = (activities: Activity[]): Activity[] => {
+  if (activities.length <= 2) return activities;
+
+  const validPoints = activities.filter((a) => a.lat !== undefined && a.lng !== undefined);
+  const invalidPoints = activities.filter((a) => a.lat === undefined || a.lng === undefined);
+
+  if (validPoints.length === 0) return activities;
+
+  const optimized: Activity[] = [];
+  let current = validPoints.shift()!;
+  optimized.push(current);
+
+  while (validPoints.length > 0) {
+    let closestIndex = 0;
+    let minDistance = getDistance(current, validPoints[0]);
+
+    for (let i = 1; i < validPoints.length; i++) {
+      const dist = getDistance(current, validPoints[i]);
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestIndex = i;
+      }
+    }
+
+    current = validPoints.splice(closestIndex, 1)[0];
+    optimized.push(current);
+  }
+
+  return [...optimized, ...invalidPoints];
+};
 
 export function Itinerary() {
   const { id } = useParams();
@@ -67,6 +117,7 @@ export function Itinerary() {
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "member">("member"); 
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [votesData, setVotesData] = useState<{[key: string]: any}>({});
+  const [isOptimizedRoute, setIsOptimizedRoute] = useState(true);
 
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
@@ -80,19 +131,40 @@ export function Itinerary() {
     activityId: null,
   });
 
-  // State-ul pentru Pop-up-ul de editare dedicat (Modal)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingActivity, setEditingActivity] = useState<{
     activityId: string;
     data: Partial<Activity>;
   } | null>(null);
 
+  // Funcție pentru generarea link-ului Google Maps cu toate punctele din ziua respectivă
+  const generateGoogleMapsRouteUrl = (activities: Activity[]) => {
+    if (!activities || activities.length === 0) return "#";
+    
+    // Extragere puncte valide (adrese sau coordonate)
+    const locations = activities.map(act => {
+      if (act.lat && act.lng) return `${act.lat},${act.lng}`;
+      return encodeURIComponent(act.location);
+    });
+
+    const origin = locations[0];
+    const destination = locations[locations.length - 1];
+    
+    if (locations.length === 1) {
+      return `https://www.google.com/maps/search/?api=1&query=${origin}`;
+    }
+
+    // Dacă avem mai mult de 2 puncte, le adăugăm ca waipoint-uri intermediare
+    const waypoints = locations.slice(1, -1).join("|");
+    return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypoints ? `&waypoints=${waypoints}` : ""}&travelmode=driving`;
+  };
+
   const formatCalendarDate = (dayNum: number) => {
     if (!trip?.startDate) return `Ziua ${dayNum}`;
     try {
       const start = new Date(trip.startDate);
       start.setDate(start.getDate() + (dayNum - 1));
-      return start.toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
+      return start.toLocaleDateString("ro-RO", { day: "numeric", month: "long", year: "numeric" });
     } catch (e) {
       return `Ziua ${dayNum}`;
     }
@@ -117,7 +189,6 @@ export function Itinerary() {
       }
     });
 
-    // Preluăm colecția globală de voturi din trip
     const votesRef = collection(db, "trips", tripId, "attractionVotes");
     const unsubVotes = onSnapshot(votesRef, (snapshot) => {
       const votesMap: any = {};
@@ -158,24 +229,22 @@ export function Itinerary() {
 
       const formattedItinerary: ItineraryDay[] = Object.keys(grouped).map(dayNum => {
         const dayActivities = grouped[parseInt(dayNum)] || [];
+        let finalActivities = [...dayActivities];
 
-        // ALGORITM DE PRIORITIZARE: Sortează descrescător după scorul de voturi (Like - Dislike)
-        const sortedActivities = [...dayActivities].sort((a, b) => {
-          const voteA = votesData[a.id] || { up: 0, down: 0 };
-          const voteB = votesData[b.id] || { up: 0, down: 0 };
-          const scoreA = (voteA.up || 0) - (voteA.down || 0);
-          const scoreB = (voteB.up || 0) - (voteB.down || 0);
-          
-          if (scoreB === scoreA) {
-            return (a.time || "").localeCompare(b.time || "");
-          }
-          return scoreB - scoreA;
-        });
+        if (isOptimizedRoute) {
+          finalActivities = optimizeRouteByProximity(finalActivities);
+        } else {
+          finalActivities.sort((a, b) => {
+            const voteA = votesData[a.id] || { up: 0, down: 0 };
+            const voteB = votesData[b.id] || { up: 0, down: 0 };
+            return ((voteB.up || 0) - (voteB.down || 0)) - ((voteA.up || 0) - (voteA.down || 0));
+          });
+        }
 
         return {
           day: parseInt(dayNum),
           date: `Ziua ${dayNum}`,
-          activities: sortedActivities
+          activities: finalActivities
         };
       }).sort((a, b) => a.day - b.day);
 
@@ -184,9 +253,8 @@ export function Itinerary() {
     });
 
     return () => unsubItinerary();
-  }, [tripId, votesData]);
+  }, [tripId, votesData, isOptimizedRoute]);
 
-  // Funcția nativă de votare (Like / Dislike) identică cu cea din Explore.tsx
   const handleVote = async (activityId: string, type: "up" | "down") => {
     if (!auth.currentUser || !tripId) return;
     const userId = auth.currentUser.uid;
@@ -275,7 +343,7 @@ export function Itinerary() {
 
       <div className="w-full max-w-md mx-auto p-6 flex flex-col items-center">
         {/* Butoane superioare standard */}
-        <div className="flex gap-2 justify-center w-full mb-6">
+        <div className="flex gap-2 justify-center w-full mb-4">
           <button onClick={() => { setIsDownloaded(true); toast.success("Salvat!"); setTimeout(() => setIsDownloaded(false), 2000); }} className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-bold px-4 py-2.5 rounded-xl flex-1 text-sm shadow-sm flex items-center justify-center gap-2">
             {isDownloaded ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Download className="w-4 h-4" />}
             <span>Salvat</span>
@@ -286,7 +354,23 @@ export function Itinerary() {
           </button>
         </div>
 
-        {/* Sumar Static (Zile & Activități) */}
+        {/* Comutator interactiv pentru Optimizarea Traseului prin Proximitate */}
+        <button 
+          onClick={() => {
+            setIsOptimizedRoute(!isOptimizedRoute);
+            toast.success(!isOptimizedRoute ? "Traseu optimizat după proximitate!" : "Ordonare resetată.");
+          }}
+          className={`w-full mb-6 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all border shadow-sm ${
+            isOptimizedRoute 
+              ? "bg-gradient-to-r from-emerald-500 to-teal-600 text-white border-transparent" 
+              : "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800"
+          }`}
+        >
+          <Wand2 className={`w-4 h-4 ${isOptimizedRoute ? "animate-pulse" : ""}`} />
+          <span>{isOptimizedRoute ? "Traseu Optim Activat" : "Optimizează Traseul Automat"}</span>
+        </button>
+
+        {/* Sumar Static */}
         <div className="grid grid-cols-2 gap-4 w-full mb-8">
           <div className="bg-white dark:bg-gray-900 p-5 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center">
             <div className="flex items-center gap-2 mb-2">
@@ -315,7 +399,7 @@ export function Itinerary() {
           {itinerary.map((day, dayIndex) => (
             <div key={day.day} className="w-full flex flex-col items-center gap-6">
               
-              {/* HEADER DE ZI NOU */}
+              {/* HEADER DE ZI CU VEZI RUTA PE HARTA INTEGRAT */}
               <div className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white p-6 rounded-[1.5rem] w-full flex flex-col items-center relative text-center shadow-md">               
                 {currentUserRole === "admin" && (
                   <button 
@@ -329,7 +413,7 @@ export function Itinerary() {
                 <div className="text-sm font-medium opacity-90 mb-1">Ziua {day.day}</div>
                 <div className="text-2xl font-bold mb-3">{formatCalendarDate(day.day)}</div>
                 
-                <div className="bg-black/15 border border-white/10 px-6 py-2.5 rounded-xl w-full max-w-[240px] flex flex-col items-center gap-0.5">
+                <div className="bg-black/15 border border-white/10 px-6 py-2 rounded-xl w-full max-w-[240px] flex flex-col items-center gap-0.5 mb-4">
                   <span className="text-xs font-semibold opacity-95">
                     {day.activities.length} {day.activities.length === 1 ? "activitate" : "activități"}
                   </span>
@@ -337,19 +421,34 @@ export function Itinerary() {
                     {calculateDayTimeRange(day.activities)}
                   </span>
                 </div>
+
+                {/* REINTEGRAT: BUTONUL „VEZI RUTA PE HARTĂ” CONSECVENT ȘI REZISTENT */}
+                {day.activities.length > 0 && (
+                  <a 
+                    href={generateGoogleMapsRouteUrl(day.activities)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-white text-gray-900 font-black text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all"
+                  >
+                    <Map className="w-3.5 h-3.5 text-blue-600" />
+                    Vezi ruta pe hartă
+                  </a>
+                )}
               </div>
 
               {/* LISTA DE CARDURI DIN INTERIORUL ZILEI */}
               <div className="w-full space-y-6 flex flex-col items-center">
-                {day.activities.map((activity) => {
-                  // Mapăm dinamic voturile curente pentru fiecare card
+                {day.activities.map((activity, idx) => {
                   const persistentVote = votesData[activity.id] || { up: 0, down: 0, voters: {} };
                   const userVote = persistentVote.voters?.[auth.currentUser?.uid || ""] || null;
 
                   return (
                     <div key={activity.id} className="w-full bg-white dark:bg-gray-900 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden relative group max-w-sm">
                       
-                      {/* Butoane edit/șterge absolute în colțul dreapta-sus al imaginii */}
+                      <div className="absolute top-3 left-3 z-20 bg-black/70 backdrop-blur-md text-white font-black text-xs w-6 h-6 rounded-full flex items-center justify-center border border-white/20">
+                        {idx + 1}
+                      </div>
+
                       {currentUserRole === "admin" && (
                         <div className="absolute top-3 right-3 z-20 flex gap-1.5">
                           <button 
@@ -367,17 +466,14 @@ export function Itinerary() {
                         </div>
                       )}
 
-                      {/* Imaginea */}
                       <div className="h-48 w-full relative">
                         <ImageWithFallback src={activity.image} alt={activity.name} className="w-full h-full object-cover" />
                       </div>
 
-                      {/* Conținut textual */}
                       <div className="p-5 flex flex-col items-center text-center w-full">
                         <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1 px-2">{activity.name}</h3>
                         <p className="text-xs text-gray-400 dark:text-gray-500 mb-4 px-4 line-clamp-2">{activity.description}</p>
                         
-                        {/* Sub-containerul pentru locație, durată și preț */}
                         <div className="w-full bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 border border-gray-100/50 dark:border-gray-800/80 mb-4">
                           <div className="flex items-center justify-center gap-1.5 text-blue-600 dark:text-blue-400 mb-2.5">
                             <MapPin className="w-4 h-4 shrink-0" />
@@ -389,7 +485,6 @@ export function Itinerary() {
                           </div>
                         </div>
 
-                        {/* NOU: ADĂUGAT BUTOANELE SIMETRICE DE LIKE / DISLIKE (CONSECVENT CU EXPLORE) */}
                         <div className="flex gap-2 w-full">
                           <button 
                             onClick={() => handleVote(activity.id, "up")} 
