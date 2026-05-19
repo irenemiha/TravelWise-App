@@ -27,9 +27,9 @@ import {
   arrayUnion, 
   getDocs, 
   where,
-  orderBy, // ADĂUGAT
-  limit,   // ADĂUGAT
-  documentId // ADĂUGAT PENTRU FIX NUME
+  orderBy, 
+  limit,   
+  documentId 
 } from "firebase/firestore";
 
 interface Member {
@@ -60,6 +60,20 @@ export function TripPlanning() {
   const [isPendingInvite, setIsPendingInvite] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "member">("member");
   const [votedMembersCount, setVotedMembersCount] = useState(0);
+
+  // --- NOU: CALCULUL DINAMIC AL NUMĂRULUI TOTAL DE ZILE PENTRU SUB-TITLU ---
+  const calculateTotalDaysDuration = () => {
+    if (!trip?.startDate || !trip?.endDate) return "";
+    try {
+      const start = new Date(trip.startDate);
+      const end = new Date(trip.endDate);
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; 
+      return `${diffDays} Zile`;
+    } catch (e) {
+      return "";
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -98,7 +112,6 @@ export function TripPlanning() {
         
         if (allParticipantUids.length > 0) {
           const usersRef = collection(db, "users");
-          // FIX: Căutăm după documentId() pentru a găsi sigur profilul adminului
           const q = query(usersRef, where(documentId(), "in", allParticipantUids));
           const usersSnap = await getDocs(q);
           
@@ -152,7 +165,6 @@ export function TripPlanning() {
       setVotedMembersCount(uniqueVoters.size);
     });
 
-    // --- LOGICĂ NOUĂ: FETCH ACTIVITATE RECENTĂ ---
     const activityRef = collection(db, "trips", id, "activity");
     const qActivity = query(activityRef, orderBy("timestamp", "desc"), limit(5));
     const unsubActivity = onSnapshot(qActivity, (snapshot) => {
@@ -164,11 +176,10 @@ export function TripPlanning() {
       unsubTrip();
       unsubItinerary();
       unsubVotes();
-      unsubActivity(); // Cleanup
+      unsubActivity(); 
     };
   }, [id, navigate]);
 
-  // Restul funcțiilor rămân identice...
   useEffect(() => {
     if (!trip?.destination || totalAvailableAttractions > 0) return;
     const fetchTotalAttractions = async () => {
@@ -239,7 +250,18 @@ export function TripPlanning() {
               <div className="flex flex-col gap-2 text-blue-100 dark:text-blue-200 text-sm items-center">
                 <div className="flex items-center gap-2 justify-center"><MapPin className="w-4 h-4" />{trip.destination}</div>
                 <div className="flex items-center gap-2 justify-center"><Calendar className="w-4 h-4" />{trip.startDate} - {trip.endDate}</div>
-                <div className="flex items-center gap-2 justify-center"><Users className="w-4 h-4" />{members.length} Membri</div>
+                
+                {/* --- MODIFICAT: SUB-TITLU COMPUS (Membri • Durată Zile) CONSECVENT CU FIGMA --- */}
+                <div className="flex items-center gap-1.5 justify-center font-bold tracking-wide">
+                  <Users className="w-4 h-4" />
+                  <span>{members.length} Membri</span>
+                  {calculateTotalDaysDuration() && (
+                    <>
+                      <span className="w-1 h-1 bg-blue-200/50 rounded-full" />
+                      <span className="text-blue-200 font-black uppercase tracking-wider text-[11px]">{calculateTotalDaysDuration()}</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex gap-2 justify-center w-full max-w-xs mx-auto">
@@ -345,7 +367,7 @@ export function TripPlanning() {
                 ))}
               </div>
               <Link to={`/explore/${trip.id}`} className="mt-10 w-full font-black text-sm bg-white text-gray-950 py-5 rounded-2xl hover:bg-blue-50 transition-all text-center flex items-center justify-center gap-3 uppercase shadow-xl">
-                Lansează explorarea <ArrowRight className="w-5 h-5" />
+                <span>Lansează explorarea</span> <ArrowRight className="w-5 h-5" />
               </Link>
             </div>
           </div>

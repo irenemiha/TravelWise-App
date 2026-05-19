@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Calendar,
   MapPin,
@@ -19,7 +19,8 @@ import {
   ThumbsUp,
   ThumbsDown,
   Wand2,
-  Map
+  Map,
+  ChevronDown
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -61,7 +62,6 @@ export interface ItineraryDay {
   activities: Activity[];
 }
 
-// Funcție pentru calculul distanței geografice în kilometri
 const getDistance = (act1: Activity, act2: Activity) => {
   if (!act1.lat || !act1.lng || !act2.lat || !act2.lng) return 0;
   const radlat1 = (Math.PI * act1.lat) / 180;
@@ -77,7 +77,6 @@ const getDistance = (act1: Activity, act2: Activity) => {
   return dist * 60 * 1.1515 * 1.609344;
 };
 
-// --- ALGORITMUL HIBRID: Criteriul 1: Proximitate (< 1.5km) | Criteriul 2: Voturi ---
 const optimizeRouteByProximityAndVotes = (activities: Activity[], votesData: any): Activity[] => {
   if (activities.length <= 2) return activities;
 
@@ -87,14 +86,12 @@ const optimizeRouteByProximityAndVotes = (activities: Activity[], votesData: any
   if (validPoints.length === 0) return activities;
 
   const optimized: Activity[] = [];
-  // Punctul de pornire rămâne prima activitate programată cronologic
   let current = validPoints.shift()!;
   optimized.push(current);
 
-  const PROXIMITY_THRESHOLD_KM = 1.5; // Raza în care activăm departajarea prin voturi
+  const PROXIMITY_THRESHOLD_KM = 1.5;
 
   while (validPoints.length > 0) {
-    // 1. Calculăm distanțele de la punctul curent la toate punctele rămase
     const candidates = validPoints.map((point, index) => {
       const dist = getDistance(current, point);
       const votes = votesData[point.id] || { up: 0, down: 0 };
@@ -102,22 +99,17 @@ const optimizeRouteByProximityAndVotes = (activities: Activity[], votesData: any
       return { point, index, dist, score };
     });
 
-    // 2. Căutăm punctele care se află în interiorul pragului de proximitate (ex: sub 1.5 km)
     const closePoints = candidates.filter(c => c.dist <= PROXIMITY_THRESHOLD_KM);
-
     let selectedCandidate;
 
     if (closePoints.length > 0) {
-      // Criteriul 2: Dacă avem mai multe puncte apropiate, îl alegem pe cel cu cel mai mare scor de voturi
       closePoints.sort((a, b) => b.score - a.score);
       selectedCandidate = closePoints[0];
     } else {
-      // Fallback: Dacă niciun punct nu este extrem de aproape, mergem pur și simplu pe cel mai apropiat fizic
       candidates.sort((a, b) => a.dist - b.dist);
       selectedCandidate = candidates[0];
     }
 
-    // Mutăm candidatul selectat în lista optimizată și îl scoatem din coada de așteptare
     current = validPoints.splice(selectedCandidate.index, 1)[0];
     optimized.push(current);
   }
@@ -137,6 +129,12 @@ export function Itinerary() {
   const [votesData, setVotesData] = useState<{[key: string]: any}>({});
   const [isOptimizedRoute, setIsOptimizedRoute] = useState(true);
 
+  // Meniuri dropdown custom pentru modalul de editare
+  const [isEditDayDropdownOpen, setIsEditDayDropdownOpen] = useState(false);
+  const [isEditTimeDropdownOpen, setIsEditTimeDropdownOpen] = useState(false);
+  const editDayRef = useRef<HTMLDivElement>(null);
+  const editTimeRef = useRef<HTMLDivElement>(null);
+
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
     type: "activity" | "day" | null;
@@ -149,6 +147,48 @@ export function Itinerary() {
     activityId: string;
     data: Partial<Activity>;
   } | null>(null);
+
+  const getMaxDaysCount = () => {
+    if (!trip?.startDate || !trip?.endDate) return 1;
+    try {
+      const start = new Date(trip.startDate);
+      const end = new Date(trip.endDate);
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    } catch (e) { return 1; }
+  };
+
+  const calculateTotalDaysDuration = () => {
+    if (!trip?.startDate || !trip?.endDate) return "";
+    try {
+      const start = new Date(trip.startDate);
+      const end = new Date(trip.endDate);
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      return `${diffDays} Zile`;
+    } catch (e) { return ""; }
+  };
+
+  const generateTimeOptions = () => {
+    const options = [];
+    for (let hour = 0; hour < 24; hour++) {
+      for (let min = 0; min < 60; min += 30) {
+        const formattedHour = hour.toString().padStart(2, '0');
+        const formattedMin = min.toString().padStart(2, '0');
+        const timeString = `${formattedHour}:${formattedMin}`;
+
+        const isAlreadyOccupied = itinerary.some(d => 
+          d.day === editingActivity?.data.day && 
+          d.activities.some(a => a.time === timeString && a.id !== editingActivity?.activityId)
+        );
+
+        if (!isAlreadyOccupied) {
+          options.push(timeString);
+        }
+      }
+    }
+    return options;
+  };
 
   const generateGoogleMapsRouteUrl = (activities: Activity[]) => {
     if (!activities || activities.length === 0) return "#";
@@ -229,10 +269,8 @@ export function Itinerary() {
         let finalActivities = [...dayActivities];
 
         if (isOptimizedRoute) {
-          // EXECUTĂ ALGORITMUL HIBRID (PROXIMITATE + TIED BY VOTES)
           finalActivities = optimizeRouteByProximityAndVotes(finalActivities, votesData);
         } else {
-          // Fallback standard pe bază de timp dacă optimizarea e oprită
           finalActivities.sort((a, b) => (a.time || "").localeCompare(b.time || ""));
         }
 
@@ -245,6 +283,15 @@ export function Itinerary() {
 
     return () => unsubItinerary();
   }, [tripId, votesData, isOptimizedRoute]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (editDayRef.current && !editDayRef.current.contains(event.target as Node)) setIsEditDayDropdownOpen(false);
+      if (editTimeRef.current && !editTimeRef.current.contains(event.target as Node)) setIsEditTimeDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
 
   const handleVote = async (activityId: string, type: "up" | "down") => {
     if (!auth.currentUser || !tripId) return;
@@ -315,7 +362,18 @@ export function Itinerary() {
         <div className="max-w-md mx-auto h-16 px-6 flex items-center gap-4">
           <Link to={`/trip/${tripId}`} className="text-gray-400 hover:text-gray-900 transition-colors active:scale-90"><ArrowLeft className="w-6 h-6 stroke-[2.5]" /></Link>
           <div className="flex flex-1 items-center justify-between min-w-0">
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white truncate">Itinerariu {trip?.destination?.split(',')[0]}</h1>
+            <div className="flex flex-col min-w-0">
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white truncate">Itinerariu {trip?.destination?.split(',')[0]}</h1>
+              <div className="flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-gray-500 font-bold tracking-wider uppercase mt-0.5">
+                <span>{trip?.participants?.length || 0} Membri</span>
+                {calculateTotalDaysDuration() && (
+                  <>
+                    <span className="w-1 h-1 bg-gray-300 dark:bg-gray-700 rounded-full" />
+                    <span className="text-blue-600 dark:text-blue-400">{calculateTotalDaysDuration()}</span>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </header>
@@ -332,7 +390,6 @@ export function Itinerary() {
           </button>
         </div>
 
-        {/* Comutator interactiv hibrid */}
         <button 
           onClick={() => {
             setIsOptimizedRoute(!isOptimizedRoute);
@@ -371,12 +428,10 @@ export function Itinerary() {
           Adaugă atracții
         </Link>
 
-        {/* Listă Zile */}
         <div className="space-y-12 w-full flex flex-col items-center">
           {itinerary.map((day, dayIndex) => (
             <div key={day.day} className="w-full flex flex-col items-center gap-6">
               
-              {/* HEADER DE ZI CU BUTON DE DETALII GOOGLE MAPS INTEGRAT */}
               <div className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white p-6 rounded-[1.5rem] w-full flex flex-col items-center relative text-center shadow-md">               
                 {currentUserRole === "admin" && (
                   <button 
@@ -412,7 +467,6 @@ export function Itinerary() {
                 )}
               </div>
 
-              {/* LISTA DE CARDURI DIN INTERIORUL ZILEI */}
               <div className="w-full space-y-6 flex flex-col items-center">
                 {day.activities.map((activity, idx) => {
                   const persistentVote = votesData[activity.id] || { up: 0, down: 0, voters: {} };
@@ -451,10 +505,17 @@ export function Itinerary() {
                         <p className="text-xs text-gray-400 dark:text-gray-500 mb-4 px-4 line-clamp-2">{activity.description}</p>
                         
                         <div className="w-full bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 border border-gray-100/50 dark:border-gray-800/80 mb-4">
-                          <div className="flex items-center justify-center gap-1.5 text-blue-600 dark:text-blue-400 mb-2.5">
+                          {/* --- MODIFICAT: DOAR ADRESA DESCHIDE ACUM GOOGLE MAPS LA CLICK --- */}
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activity.name + " " + activity.location)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-1.5 text-blue-600 dark:text-blue-400 mb-2.5 hover:underline active:opacity-80 transition-all"
+                            title="Deschide în Google Maps"
+                          >
                             <MapPin className="w-4 h-4 shrink-0" />
                             <span className="text-xs font-bold truncate max-w-[200px]">{activity.location}</span>
-                          </div>
+                          </a>
                           <div className="flex justify-center items-center gap-6 text-xs font-semibold text-gray-500 border-t border-gray-200/50 dark:border-gray-700/50 pt-2">
                             <div className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-purple-500" /> {activity.time}</div>
                             <div className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5 text-green-500" /> {activity.price}</div>
@@ -462,26 +523,8 @@ export function Itinerary() {
                         </div>
 
                         <div className="flex gap-2 w-full">
-                          <button 
-                            onClick={() => handleVote(activity.id, "up")} 
-                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all font-bold text-sm ${
-                              userVote === "up" 
-                                ? "bg-green-500 text-white shadow-sm" 
-                                : "bg-gray-50 dark:bg-gray-800 text-gray-500 hover:bg-green-50 dark:hover:bg-green-950/20"
-                            }`}
-                          >
-                            <ThumbsUp className="w-4 h-4" /> {persistentVote.up || 0}
-                          </button>
-                          <button 
-                            onClick={() => handleVote(activity.id, "down")} 
-                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all font-bold text-sm ${
-                              userVote === "down" 
-                                ? "bg-red-500 text-white shadow-sm" 
-                                : "bg-gray-50 dark:bg-gray-800 text-gray-500 hover:bg-red-50 dark:hover:bg-red-950/20"
-                            }`}
-                          >
-                            <ThumbsDown className="w-4 h-4" /> {persistentVote.down || 0}
-                          </button>
+                          <button onClick={() => handleVote(activity.id, "up")} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all font-bold text-sm ${userVote === "up" ? "bg-green-500 text-white shadow-sm" : "bg-gray-50 dark:bg-gray-800 text-gray-500 hover:bg-green-50 dark:hover:bg-green-950/20"}`}><ThumbsUp className="w-4 h-4" /> {persistentVote.up || 0}</button>
+                          <button onClick={() => handleVote(activity.id, "down")} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all font-bold text-sm ${userVote === "down" ? "bg-red-500 text-white shadow-sm" : "bg-gray-50 dark:bg-gray-800 text-gray-500 hover:bg-red-50 dark:hover:bg-red-950/20"}`}><ThumbsDown className="w-4 h-4" /> {persistentVote.down || 0}</button>
                         </div>
                       </div>
 
@@ -495,22 +538,60 @@ export function Itinerary() {
         </div>
       </div>
 
-      {/* POP-UP / MODAL EDITARE */}
+      {/* POP-UP / MODAL EDITARE RECONFIGURAT COMPLET CU CUSTOM DROPDOWN-URI ȘI FILTRE VALIDATE */}
       {isEditModalOpen && editingActivity && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 w-full max-w-xs border border-gray-100 dark:border-gray-800 shadow-2xl flex flex-col items-center text-center">
             <h3 className="text-md font-bold text-gray-900 dark:text-white mb-5">Editează Activitatea</h3>
             <div className="space-y-3 w-full mb-6">
-              <input type="text" placeholder="Nume activitate" value={editingActivity.data.name || ""} onChange={(e) => setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, name: e.target.value } })} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 dark:text-white" />
-              <input type="text" placeholder="Descriere" value={editingActivity.data.description || ""} onChange={(e) => setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, description: e.target.value } })} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 dark:text-white" />
-              <div className="grid grid-cols-2 gap-2">
-                <input type="text" placeholder="10:00" value={editingActivity.data.time || ""} onChange={(e) => setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, time: e.target.value } })} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm outline-none" />
-                <input type="text" placeholder="Preț" value={editingActivity.data.price || ""} onChange={(e) => setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, price: e.target.value } })} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm outline-none" />
+              <input type="text" placeholder="Nume activitate" value={editingActivity.data.name || ""} onChange={(e) => setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, name: e.target.value } })} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm outline-none text-gray-800 dark:text-white" />
+              <input type="text" placeholder="Descriere" value={editingActivity.data.description || ""} onChange={(e) => setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, description: e.target.value } })} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm outline-none text-gray-800 dark:text-white" />
+              
+              <div className="grid grid-cols-2 gap-2 text-left">
+                {/* DROPDOWN CUSTOM: ZIUA */}
+                <div ref={editDayRef} className="relative">
+                  <button 
+                    type="button" 
+                    onClick={() => { setIsEditDayDropdownOpen(!isEditDayDropdownOpen); setIsEditTimeDropdownOpen(false); }}
+                    className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-xs text-gray-800 dark:text-white flex justify-between items-center"
+                  >
+                    <span>Ziua {editingActivity.data.day}</span>
+                    <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                  </button>
+                  {isEditDayDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border rounded-xl shadow-xl z-[110] max-h-32 overflow-y-auto p-1 no-scrollbar flex flex-col">
+                      {Array.from({ length: getMaxDaysCount() }, (_, i) => i + 1).map(dayNum => (
+                        <button key={dayNum} type="button" onClick={() => { setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, day: dayNum } }); setIsEditDayDropdownOpen(false); }} className={`w-full py-2 text-xs font-bold rounded-lg ${editingActivity.data.day === dayNum ? "bg-blue-600 text-white" : "hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-900 dark:text-white"}`}>Ziua {dayNum}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* DROPDOWN CUSTOM: ORA (FILTRATĂ SĂ EXCLUDA ORELE DEJA REZERVATE DIN ACEA ZI) */}
+                <div ref={editTimeRef} className="relative">
+                  <button 
+                    type="button" 
+                    onClick={() => { setIsEditTimeDropdownOpen(!isEditTimeDropdownOpen); setIsEditDayDropdownOpen(false); }}
+                    className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-xs text-gray-800 dark:text-white flex justify-between items-center"
+                  >
+                    <span>{generateTimeOptions().length === 0 ? "Ocupat" : editingActivity.data.time}</span>
+                    <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                  </button>
+                  {isEditTimeDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border rounded-xl shadow-xl z-[110] max-h-32 overflow-y-auto p-1 no-scrollbar flex flex-col">
+                      {generateTimeOptions().map(timeString => (
+                        <button key={timeString} type="button" onClick={() => { setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, time: timeString } }); setIsEditTimeDropdownOpen(false); }} className={`w-full py-2 text-xs font-bold rounded-lg ${editingActivity.data.time === timeString ? "bg-blue-600 text-white" : "hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-900 dark:text-white"}`}>{timeString}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
+
+              <input type="text" placeholder="Preț" value={editingActivity.data.price || ""} onChange={(e) => setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, price: e.target.value } })} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm outline-none text-gray-800 dark:text-white" />
             </div>
             <div className="flex gap-2 w-full">
               <button onClick={() => { setIsEditModalOpen(false); setEditingActivity(null); }} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5"><X className="w-3.5 h-3.5" /> Anulează</button>
-              <button onClick={saveActivityEdit} className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-md"><Save className="w-3.5 h-3.5" /> Salvează</button>
+              <button onClick={saveActivityEdit} disabled={generateTimeOptions().length === 0} className={`flex-1 py-3 text-white rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-md ${generateTimeOptions().length === 0 ? "bg-gray-300 dark:bg-gray-800 cursor-not-allowed" : "bg-blue-600"}`}><Save className="w-3.5 h-3.5" /> Salvează</button>
             </div>
           </div>
         </div>
