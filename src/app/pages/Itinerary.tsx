@@ -61,6 +61,7 @@ export interface ItineraryDay {
   activities: Activity[];
 }
 
+// Funcție pentru calculul distanței geografice în kilometri
 const getDistance = (act1: Activity, act2: Activity) => {
   if (!act1.lat || !act1.lng || !act2.lat || !act2.lng) return 0;
   const radlat1 = (Math.PI * act1.lat) / 180;
@@ -76,7 +77,8 @@ const getDistance = (act1: Activity, act2: Activity) => {
   return dist * 60 * 1.1515 * 1.609344;
 };
 
-const optimizeRouteByProximity = (activities: Activity[]): Activity[] => {
+// --- ALGORITMUL HIBRID: Criteriul 1: Proximitate (< 1.5km) | Criteriul 2: Voturi ---
+const optimizeRouteByProximityAndVotes = (activities: Activity[], votesData: any): Activity[] => {
   if (activities.length <= 2) return activities;
 
   const validPoints = activities.filter((a) => a.lat !== undefined && a.lng !== undefined);
@@ -85,22 +87,38 @@ const optimizeRouteByProximity = (activities: Activity[]): Activity[] => {
   if (validPoints.length === 0) return activities;
 
   const optimized: Activity[] = [];
+  // Punctul de pornire rămâne prima activitate programată cronologic
   let current = validPoints.shift()!;
   optimized.push(current);
 
-  while (validPoints.length > 0) {
-    let closestIndex = 0;
-    let minDistance = getDistance(current, validPoints[0]);
+  const PROXIMITY_THRESHOLD_KM = 1.5; // Raza în care activăm departajarea prin voturi
 
-    for (let i = 1; i < validPoints.length; i++) {
-      const dist = getDistance(current, validPoints[i]);
-      if (dist < minDistance) {
-        minDistance = dist;
-        closestIndex = i;
-      }
+  while (validPoints.length > 0) {
+    // 1. Calculăm distanțele de la punctul curent la toate punctele rămase
+    const candidates = validPoints.map((point, index) => {
+      const dist = getDistance(current, point);
+      const votes = votesData[point.id] || { up: 0, down: 0 };
+      const score = (votes.up || 0) - (votes.down || 0);
+      return { point, index, dist, score };
+    });
+
+    // 2. Căutăm punctele care se află în interiorul pragului de proximitate (ex: sub 1.5 km)
+    const closePoints = candidates.filter(c => c.dist <= PROXIMITY_THRESHOLD_KM);
+
+    let selectedCandidate;
+
+    if (closePoints.length > 0) {
+      // Criteriul 2: Dacă avem mai multe puncte apropiate, îl alegem pe cel cu cel mai mare scor de voturi
+      closePoints.sort((a, b) => b.score - a.score);
+      selectedCandidate = closePoints[0];
+    } else {
+      // Fallback: Dacă niciun punct nu este extrem de aproape, mergem pur și simplu pe cel mai apropiat fizic
+      candidates.sort((a, b) => a.dist - b.dist);
+      selectedCandidate = candidates[0];
     }
 
-    current = validPoints.splice(closestIndex, 1)[0];
+    // Mutăm candidatul selectat în lista optimizată și îl scoatem din coada de așteptare
+    current = validPoints.splice(selectedCandidate.index, 1)[0];
     optimized.push(current);
   }
 
@@ -124,12 +142,7 @@ export function Itinerary() {
     type: "activity" | "day" | null;
     dayIndex: number | null;
     activityId: string | null;
-  }>({
-    isOpen: false,
-    type: null,
-    dayIndex: null,
-    activityId: null,
-  });
+  }>({ isOpen: false, type: null, dayIndex: null, activityId: null });
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingActivity, setEditingActivity] = useState<{
@@ -137,11 +150,8 @@ export function Itinerary() {
     data: Partial<Activity>;
   } | null>(null);
 
-  // Funcție pentru generarea link-ului Google Maps cu toate punctele din ziua respectivă
   const generateGoogleMapsRouteUrl = (activities: Activity[]) => {
     if (!activities || activities.length === 0) return "#";
-    
-    // Extragere puncte valide (adrese sau coordonate)
     const locations = activities.map(act => {
       if (act.lat && act.lng) return `${act.lat},${act.lng}`;
       return encodeURIComponent(act.location);
@@ -149,12 +159,8 @@ export function Itinerary() {
 
     const origin = locations[0];
     const destination = locations[locations.length - 1];
+    if (locations.length === 1) return `https://www.google.com/maps/search/?api=1&query=${origin}`;
     
-    if (locations.length === 1) {
-      return `https://www.google.com/maps/search/?api=1&query=${origin}`;
-    }
-
-    // Dacă avem mai mult de 2 puncte, le adăugăm ca waipoint-uri intermediare
     const waypoints = locations.slice(1, -1).join("|");
     return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypoints ? `&waypoints=${waypoints}` : ""}&travelmode=driving`;
   };
@@ -165,9 +171,7 @@ export function Itinerary() {
       const start = new Date(trip.startDate);
       start.setDate(start.getDate() + (dayNum - 1));
       return start.toLocaleDateString("ro-RO", { day: "numeric", month: "long", year: "numeric" });
-    } catch (e) {
-      return `Ziua ${dayNum}`;
-    }
+    } catch (e) { return `Ziua ${dayNum}`; }
   };
 
   const calculateDayTimeRange = (activities: Activity[]) => {
@@ -196,10 +200,7 @@ export function Itinerary() {
       setVotesData(votesMap);
     });
 
-    return () => {
-      unsubTrip();
-      unsubVotes();
-    };
+    return () => { unsubTrip(); unsubVotes(); };
   }, [tripId]);
 
   useEffect(() => {
@@ -214,11 +215,7 @@ export function Itinerary() {
         const activityId = d.id;
         const activityImage = `https://tse1.mm.bing.net/th?q=${encodeURIComponent(data.name || 'place')}&w=800&h=600&c=1&p=0`;
 
-        return { 
-          id: activityId, 
-          ...data,
-          image: data.image || activityImage 
-        } as Activity;
+        return { id: activityId, ...data, image: data.image || activityImage } as Activity;
       });
 
       const grouped: { [key: number]: Activity[] } = {};
@@ -232,20 +229,14 @@ export function Itinerary() {
         let finalActivities = [...dayActivities];
 
         if (isOptimizedRoute) {
-          finalActivities = optimizeRouteByProximity(finalActivities);
+          // EXECUTĂ ALGORITMUL HIBRID (PROXIMITATE + TIED BY VOTES)
+          finalActivities = optimizeRouteByProximityAndVotes(finalActivities, votesData);
         } else {
-          finalActivities.sort((a, b) => {
-            const voteA = votesData[a.id] || { up: 0, down: 0 };
-            const voteB = votesData[b.id] || { up: 0, down: 0 };
-            return ((voteB.up || 0) - (voteB.down || 0)) - ((voteA.up || 0) - (voteA.down || 0));
-          });
+          // Fallback standard pe bază de timp dacă optimizarea e oprită
+          finalActivities.sort((a, b) => (a.time || "").localeCompare(b.time || ""));
         }
 
-        return {
-          day: parseInt(dayNum),
-          date: `Ziua ${dayNum}`,
-          activities: finalActivities
-        };
+        return { day: parseInt(dayNum), date: `Ziua ${dayNum}`, activities: finalActivities };
       }).sort((a, b) => a.day - b.day);
 
       setItinerary(formattedItinerary);
@@ -259,10 +250,8 @@ export function Itinerary() {
     if (!auth.currentUser || !tripId) return;
     const userId = auth.currentUser.uid;
     const voteDocRef = doc(db, "trips", tripId, "attractionVotes", activityId);
-    
     const currentData = votesData[activityId] || { up: 0, down: 0, voters: {} };
     const previousVote = currentData.voters?.[userId] || null;
-    
     let newUp = currentData.up || 0;
     let newDown = currentData.down || 0;
     let newVoters = { ...(currentData.voters || {}) };
@@ -271,23 +260,17 @@ export function Itinerary() {
       newUp = type === "up" ? newUp - 1 : newUp; 
       newDown = type === "down" ? newDown - 1 : newDown; 
       delete newVoters[userId]; 
-      toast.info("Vot retras.");
     } else {
       if (previousVote === "up") newUp--; 
       if (previousVote === "down") newDown--;
       if (type === "up") newUp++; else newDown++;
       newVoters[userId] = type;
-      toast.success(type === "up" ? "Îți place această activitate!" : "Nu îți place această activitate.");
     }
-    
     await setDoc(voteDocRef, { up: Math.max(0, newUp), down: Math.max(0, newDown), voters: newVoters });
   };
 
   const openEditModal = (activity: Activity) => {
-    setEditingActivity({
-      activityId: activity.id,
-      data: { ...activity }
-    });
+    setEditingActivity({ activityId: activity.id, data: { ...activity } });
     setIsEditModalOpen(true);
   };
 
@@ -298,10 +281,8 @@ export function Itinerary() {
         await updateDoc(actRef, editingActivity.data);
         setIsEditModalOpen(false);
         setEditingActivity(null);
-        toast.success("Activitatea a fost salvată!");
-      } catch (e) {
-        toast.error("Eroare la salvare.");
-      }
+        toast.success("Salvat!");
+      } catch (e) { toast.error("Eroare la salvare."); }
     }
   };
 
@@ -319,9 +300,7 @@ export function Itinerary() {
         await batch.commit();
       }
       toast.success("Eliminat!");
-    } catch (e) {
-      toast.error("Eroare la ștergere.");
-    }
+    } catch (e) { toast.error("Eroare la ștergere."); }
     setDeleteDialog({ isOpen: false, type: null, dayIndex: null, activityId: null });
   };
 
@@ -342,7 +321,6 @@ export function Itinerary() {
       </header>
 
       <div className="w-full max-w-md mx-auto p-6 flex flex-col items-center">
-        {/* Butoane superioare standard */}
         <div className="flex gap-2 justify-center w-full mb-4">
           <button onClick={() => { setIsDownloaded(true); toast.success("Salvat!"); setTimeout(() => setIsDownloaded(false), 2000); }} className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-bold px-4 py-2.5 rounded-xl flex-1 text-sm shadow-sm flex items-center justify-center gap-2">
             {isDownloaded ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Download className="w-4 h-4" />}
@@ -354,23 +332,22 @@ export function Itinerary() {
           </button>
         </div>
 
-        {/* Comutator interactiv pentru Optimizarea Traseului prin Proximitate */}
+        {/* Comutator interactiv hibrid */}
         <button 
           onClick={() => {
             setIsOptimizedRoute(!isOptimizedRoute);
-            toast.success(!isOptimizedRoute ? "Traseu optimizat după proximitate!" : "Ordonare resetată.");
+            toast.success(!isOptimizedRoute ? "Traseu optimizat hibrid (Proximitate + Voturi)!" : "Ordonare resetată cronologic.");
           }}
           className={`w-full mb-6 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all border shadow-sm ${
             isOptimizedRoute 
-              ? "bg-gradient-to-r from-emerald-500 to-teal-600 text-white border-transparent" 
+              ? "bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white border-transparent" 
               : "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800"
           }`}
         >
           <Wand2 className={`w-4 h-4 ${isOptimizedRoute ? "animate-pulse" : ""}`} />
-          <span>{isOptimizedRoute ? "Traseu Optim Activat" : "Optimizează Traseul Automat"}</span>
+          <span>{isOptimizedRoute ? "Traseu Hibrid Activat" : "Activează Optimizarea Traseului"}</span>
         </button>
 
-        {/* Sumar Static */}
         <div className="grid grid-cols-2 gap-4 w-full mb-8">
           <div className="bg-white dark:bg-gray-900 p-5 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center">
             <div className="flex items-center gap-2 mb-2">
@@ -394,12 +371,12 @@ export function Itinerary() {
           Adaugă atracții
         </Link>
 
-        {/* Listă Zile Itinerariu */}
+        {/* Listă Zile */}
         <div className="space-y-12 w-full flex flex-col items-center">
           {itinerary.map((day, dayIndex) => (
             <div key={day.day} className="w-full flex flex-col items-center gap-6">
               
-              {/* HEADER DE ZI CU VEZI RUTA PE HARTA INTEGRAT */}
+              {/* HEADER DE ZI CU BUTON DE DETALII GOOGLE MAPS INTEGRAT */}
               <div className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white p-6 rounded-[1.5rem] w-full flex flex-col items-center relative text-center shadow-md">               
                 {currentUserRole === "admin" && (
                   <button 
@@ -422,7 +399,6 @@ export function Itinerary() {
                   </span>
                 </div>
 
-                {/* REINTEGRAT: BUTONUL „VEZI RUTA PE HARTĂ” CONSECVENT ȘI REZISTENT */}
                 {day.activities.length > 0 && (
                   <a 
                     href={generateGoogleMapsRouteUrl(day.activities)}
@@ -507,7 +483,6 @@ export function Itinerary() {
                             <ThumbsDown className="w-4 h-4" /> {persistentVote.down || 0}
                           </button>
                         </div>
-
                       </div>
 
                     </div>
@@ -520,85 +495,28 @@ export function Itinerary() {
         </div>
       </div>
 
-      {/* POP-UP / MODAL DEDICAT PENTRU EDITARE ACTIVITATE */}
+      {/* POP-UP / MODAL EDITARE */}
       {isEditModalOpen && editingActivity && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 w-full max-w-xs border border-gray-100 dark:border-gray-800 shadow-2xl flex flex-col items-center text-center">
-            
             <h3 className="text-md font-bold text-gray-900 dark:text-white mb-5">Editează Activitatea</h3>
-            
             <div className="space-y-3 w-full mb-6">
-              <input 
-                type="text" 
-                placeholder="Nume activitate"
-                value={editingActivity.data.name || ""} 
-                onChange={(e) => setEditingActivity({
-                  ...editingActivity, 
-                  data: { ...editingActivity.data, name: e.target.value }
-                })} 
-                className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
-              />
-              
-              <input 
-                type="text" 
-                placeholder="Descriere"
-                value={editingActivity.data.description || ""} 
-                onChange={(e) => setEditingActivity({
-                  ...editingActivity, 
-                  data: { ...editingActivity.data, description: e.target.value }
-                })} 
-                className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
-              />
-              
+              <input type="text" placeholder="Nume activitate" value={editingActivity.data.name || ""} onChange={(e) => setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, name: e.target.value } })} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 dark:text-white" />
+              <input type="text" placeholder="Descriere" value={editingActivity.data.description || ""} onChange={(e) => setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, description: e.target.value } })} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 dark:text-white" />
               <div className="grid grid-cols-2 gap-2">
-                <input 
-                  type="text" 
-                  placeholder="10:00"
-                  value={editingActivity.data.time || ""} 
-                  onChange={(e) => setEditingActivity({
-                    ...editingActivity, 
-                    data: { ...editingActivity.data, time: e.target.value }
-                  })} 
-                  className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
-                />
-                <input 
-                  type="text" 
-                  placeholder="Preț"
-                  value={editingActivity.data.price || ""} 
-                  onChange={(e) => setEditingActivity({
-                    ...editingActivity, 
-                    data: { ...editingActivity.data, price: e.target.value }
-                  })} 
-                  className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
-                />
+                <input type="text" placeholder="10:00" value={editingActivity.data.time || ""} onChange={(e) => setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, time: e.target.value } })} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm outline-none" />
+                <input type="text" placeholder="Preț" value={editingActivity.data.price || ""} onChange={(e) => setEditingActivity({ ...editingActivity, data: { ...editingActivity.data, price: e.target.value } })} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 p-3 rounded-xl font-semibold text-center text-sm outline-none" />
               </div>
             </div>
-
             <div className="flex gap-2 w-full">
-              <button 
-                onClick={() => { setIsEditModalOpen(false); setEditingActivity(null); }} 
-                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <X className="w-3.5 h-3.5" /> Anulează
-              </button>
-              <button 
-                onClick={saveActivityEdit} 
-                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all"
-              >
-                <Save className="w-3.5 h-3.5" /> Salvează
-              </button>
+              <button onClick={() => { setIsEditModalOpen(false); setEditingActivity(null); }} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5"><X className="w-3.5 h-3.5" /> Anulează</button>
+              <button onClick={saveActivityEdit} className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-md"><Save className="w-3.5 h-3.5" /> Salvează</button>
             </div>
           </div>
         </div>
       )}
 
-      <ConfirmDialog 
-        isOpen={deleteDialog.isOpen} 
-        title={deleteDialog.type === "day" ? "Șterge ziua" : "Șterge activitatea"} 
-        message="Ești sigur? Acțiunea nu poate fi anulată." 
-        onConfirm={confirmDelete} 
-        onCancel={() => setDeleteDialog({ isOpen: false, type: null, dayIndex: null, activityId: null })} 
-      />
+      <ConfirmDialog isOpen={deleteDialog.isOpen} title={deleteDialog.type === "day" ? "Șterge ziua" : "Șterge activitatea"} message="Ești sigur? Acțiunea nu poate fi anulată." onConfirm={confirmDelete} onCancel={() => setDeleteDialog({ isOpen: false, type: null, dayIndex: null, activityId: null })} />
     </div>
   );
 }
