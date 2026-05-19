@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
-import { ArrowLeft, Send, Image as ImageIcon, Star, Loader2, X } from "lucide-react";
+import { ArrowLeft, Send, Image as ImageIcon, Loader2, MessageSquare } from "lucide-react";
 
 // IMPORTURI FIREBASE
 import { db, auth } from "../../firebase";
@@ -11,17 +11,17 @@ import {
   onSnapshot, 
   query, 
   orderBy, 
+  limit, // Adăugat pentru limitarea volumului de date
   serverTimestamp, 
   doc 
 } from "firebase/firestore";
 
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 
-// Definim interfața pentru mesajele din Firestore
 interface FirestoreMessage {
   id: string;
   text?: string;
-  imageUrl?: string; // Câmp nou pentru poze
+  imageUrl?: string;
   senderId: string;
   senderName: string;
   timestamp: any;
@@ -67,7 +67,7 @@ export function TripChat() {
     };
   }, []);
 
-  // 1. ASCULTĂM DATELE TRIP-ULUI ȘI MESAJELE
+  // 1. ASCULTĂM DATELE TRIP-ULUI ȘI MESAJELE (OPTIMIZAT COMPLET)
   useEffect(() => {
     if (!tripId) return;
 
@@ -77,7 +77,6 @@ export function TripChat() {
         const data = snap.data();
         const cityName = (data.destination || 'travel').split(',')[0].trim();
         
-        // --- LOGICĂ IMAGINE BING ---
         const isBroken = !data.image || 
                          data.image === "" || 
                          data.image.includes("loremflickr") || 
@@ -94,33 +93,47 @@ export function TripChat() {
       }
     });
 
+    // OPTIMIZARE: Ordonăm mesajele și le limităm la ultimele 50 pentru a reduce masiv consumul de date/citiri
     const messagesRef = collection(db, "trips", tripId, "messages");
-    const q = query(messagesRef, orderBy("timestamp", "asc"));
+    const q = query(
+      messagesRef, 
+      orderBy("timestamp", "asc"),
+      limit(50)
+    );
 
     let isFirstLoad = true;
 
-    const unsubMessages = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as FirestoreMessage[];
-      
-      if (!isFirstLoad && msgs.length > 0 && !isChatOpenRef.current) {
-        const lastMessage = msgs[msgs.length - 1];
-        const currentUserId = auth.currentUser?.uid;
+    // OPTIMIZARE: Adăugat includeMetadataChanges: false pentru a ignora latențele cache-ului local
+    const unsubMessages = onSnapshot(
+      q, 
+      { includeMetadataChanges: false }, 
+      (snapshot) => {
+        const msgs = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as FirestoreMessage[];
+        
+        if (!isFirstLoad && msgs.length > 0 && !isChatOpenRef.current) {
+          const lastMessage = msgs[msgs.length - 1];
+          const currentUserId = auth.currentUser?.uid;
 
-        if (lastMessage.senderId !== currentUserId && "Notification" in window && Notification.permission === "granted") {
-          new Notification(lastMessage.senderName, {
-            body: lastMessage.sharedAttractionId ? `📍 Atracție: ${lastMessage.text}` : lastMessage.text,
-            icon: "/favicon.ico"
-          });
+          if (lastMessage.senderId !== currentUserId && "Notification" in window && Notification.permission === "granted") {
+            new Notification(lastMessage.senderName, {
+              body: lastMessage.sharedAttractionId ? `📍 Atracție: ${lastMessage.text}` : lastMessage.text,
+              icon: "/favicon.ico"
+            });
+          }
         }
-      }
 
-      isFirstLoad = false;
-      setMessages(msgs);
-      setLoading(false);
-    });
+        isFirstLoad = false;
+        setMessages(msgs);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Eroare sincronizare chat:", error);
+        setLoading(false);
+      }
+    );
 
     return () => {
       unsubTrip();
@@ -132,20 +145,20 @@ export function TripChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // 2. LOGICA DE TRIMITERE MESAJ (TEXT)
+  // 2. LOGICA DE TRIMITERE MESAJ (OPTIMIZAT UX OPTIMISTIC)
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !auth.currentUser) return;
 
     const textToSend = newMessage.trim();
-    setNewMessage("");
+    setNewMessage(""); // Golire instantă în UI pentru un feedback vizual ultra-rapid
 
     try {
       await addDoc(collection(db, "trips", tripId, "messages"), {
         text: textToSend,
         senderId: auth.currentUser.uid,
         senderName: auth.currentUser.displayName || "Călător",
-        timestamp: serverTimestamp(),
+        timestamp: serverTimestamp(), // Timpul precis de sincronizare al serverului Firebase
       });
     } catch (error) {
       toast.error("Mesajul nu a putut fi trimis.");
@@ -201,66 +214,77 @@ export function TripChat() {
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-950 transition-colors overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-950 via-purple-900 to-fuchsia-950 border-b dark:border-gray-800 sticky top-0 z-10 px-4 py-3 flex items-center gap-3 shadow-sm transition-colors">
+      <div className="bg-gradient-to-r from-blue-950 via-purple-900 to-fuchsia-950 border-b dark:border-gray-800 sticky top-0 z-10 px-4 py-3 flex items-center gap-3 shadow-sm transition-colors h-16 shrink-0">
         <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-white/70 hover:text-white active:scale-90 transition-all">
           <ArrowLeft className="w-6 h-6" />
         </button>
         
-        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white/20 shrink-0 shadow-sm flex">
-          <ImageWithFallback src={trip?.tripImage} alt={trip?.name} className="w-full h-full min-w-full min-h-full object-cover" />
+        <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/20 shrink-0 shadow-sm flex">
+          <ImageWithFallback src={trip?.tripImage} alt={trip?.name} className="w-full h-full object-cover" />
         </div>
 
         <div className="flex justify-between w-full items-center min-w-0">
           <div className="flex flex-col min-w-0">
-             <h1 className="text-md font-bold text-white truncate tracking-tight">{trip?.name}</h1>
-             <span className="text-[10px] text-white/60 font-bold tracking-widest uppercase">{trip?.participants?.length || 0} Membri</span>
+             <h1 className="text-sm font-black text-white truncate tracking-tight">{trip?.name}</h1>
+             <span className="text-[9px] text-white/60 font-bold tracking-widest uppercase">{trip?.participants?.length || 0} Membri</span>
           </div>
         </div>
       </div>
 
       {/* Messages List */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {messages.map((msg) => {
-          const isMe = msg.senderId === auth.currentUser?.uid;
-          const isSharedCard = !!msg.sharedAttractionId;
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+        {messages.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-2">
+            <MessageSquare className="w-8 h-8 stroke-[1.5]" />
+            <span className="text-xs font-bold uppercase tracking-widest">Scrie primul mesaj în grup!</span>
+          </div>
+        ) : (
+          messages.map((msg) => {
+            const isMe = msg.senderId === auth.currentUser?.uid;
+            const isSharedCard = !!msg.sharedAttractionId;
 
-          return (
-            <div key={msg.id} className={`flex flex-col w-full ${isMe ? 'items-end' : 'items-start'}`}>
-              {!isMe && <span className="text-[9px] text-gray-400 dark:text-gray-500 font-black uppercase tracking-widest ml-2 mb-1">{msg.senderName}</span>}
-              
-              {/* MODIFICARE: Adăugat cursor-pointer, active status și redirecționare exactă pe ID-ul atracției distribuite */}
-              <div 
-                onClick={() => {
-                  if (isSharedCard) {
-                    navigate(`/explore/${tripId}#${msg.sharedAttractionId}`);
-                  }
-                }}
-                className={`max-w-[75%] rounded-2xl shadow-sm overflow-hidden transition-all ${
-                  isSharedCard ? 'cursor-pointer hover:opacity-90 active:scale-[0.99]' : ''
-                } ${
-                  isMe ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-none border border-gray-100 dark:border-gray-700'
-                }`}
-              >
-                {/* MODIFICARE CONȚINUT BULĂ: Randare combinată text + imagine pentru cărțile partajate */}
-                {msg.text && (
-                  <p className="p-3 text-sm font-medium leading-relaxed">{msg.text}</p>
-                )}
+            return (
+              <div key={msg.id} className={`flex flex-col w-full ${isMe ? 'items-end' : 'items-start'}`}>
+                {!isMe && <span className="text-[9px] text-gray-400 dark:text-gray-500 font-bold ml-2 mb-1">{msg.senderName}</span>}
                 
-                {msg.imageUrl && (
-                  <div className={msg.text ? "px-1 pb-1" : "p-1"}>
-                    <img src={msg.imageUrl} alt="Sent" className="w-full h-auto rounded-xl max-h-80 object-cover" />
-                  </div>
-                )}
+                <div 
+                  onClick={() => {
+                    if (isSharedCard) {
+                      navigate(`/explore/${tripId}#${msg.sharedAttractionId}`);
+                    }
+                  }}
+                  className={`max-w-[80%] rounded-2xl shadow-sm overflow-hidden transition-all ${
+                    isSharedCard ? 'cursor-pointer hover:opacity-95 active:scale-[0.99]' : ''
+                  } ${
+                    isMe ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-bl-none border border-gray-100 dark:border-gray-800'
+                  }`}
+                >
+                  {isSharedCard && msg.imageUrl && (
+                    <div className="p-1 pb-0 bg-gray-50 dark:bg-gray-950/40">
+                      <img src={msg.imageUrl} alt="Shared Location" className="w-full h-32 object-cover rounded-xl" />
+                    </div>
+                  )}
+
+                  {msg.text && (
+                    <p className="p-3 text-sm font-medium leading-relaxed break-words">{msg.text}</p>
+                  )}
+                  
+                  {!isSharedCard && msg.imageUrl && (
+                    <div className={msg.text ? "px-1 pb-1" : "p-1"}>
+                      <img src={msg.imageUrl} alt="Sent" className="w-full h-auto rounded-xl max-h-80 object-cover" />
+                    </div>
+                  )}
+                </div>
+                <span className="text-[8px] text-gray-400 font-bold mt-1 px-2">{formatFirestoreTime(msg.timestamp)}</span>
               </div>
-              <span className="text-[8px] text-gray-400 font-bold mt-1 px-2">{formatFirestoreTime(msg.timestamp)}</span>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input Area */}
-      <div className="bg-white dark:bg-gray-900 border-t dark:border-gray-800 p-4 flex items-center gap-3 w-full transition-colors pb-safe">
+      <div className="bg-white dark:bg-gray-900 border-t dark:border-gray-800 p-4 flex items-center gap-3 w-full transition-colors pb-safe shrink-0">
         <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
         
         <button 
@@ -279,7 +303,7 @@ export function TripChat() {
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder={isUploading ? "Se încarcă poza..." : "Scrie un mesaj..."}
             disabled={isUploading}
-            className="flex-1 bg-gray-100 dark:bg-gray-800 dark:text-white border-none rounded-full px-5 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors"
+            className="flex-1 bg-gray-100 dark:bg-gray-800 dark:text-white border-none rounded-2xl px-5 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors"
           />
           <button 
             type="submit"

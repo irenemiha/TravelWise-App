@@ -21,6 +21,7 @@ import {
   History,
   LayoutGrid,
   Send,
+  Sparkles,
   CheckCircle2
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
@@ -78,8 +79,10 @@ export function Explore() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  // NOU: State care ține evidența numelor locațiilor deja adăugate în itinerariu
   const [addedActivitiesNames, setAddedActivitiesNames] = useState<string[]>([]);
+  
+  // NOU & CORECTAT: State dedicat pentru recomandări complet reactive
+  const [recommendedAttractions, setRecommendations] = useState<Attraction[]>([]);
 
   const [addFormData, setAddFormData] = useState({
     targetTripId: tripId,
@@ -142,16 +145,13 @@ export function Explore() {
     return () => unsubVotes();
   }, [tripId]);
 
-  // NOU: Listener în timp real pentru a prelua elementele existente în itinerariu
   useEffect(() => {
     if (!tripId) return;
     const itineraryRef = collection(db, "trips", tripId, "itinerary");
-    
     const unsubItineraryCheck = onSnapshot(itineraryRef, (snapshot) => {
       const names = snapshot.docs.map(doc => doc.data().name);
       setAddedActivitiesNames(names);
     });
-
     return () => unsubItineraryCheck();
   }, [tripId]);
 
@@ -235,6 +235,41 @@ export function Explore() {
     };
     fetchPlaces();
   }, [trip?.destination, userSavedIds.length]);
+
+  // --- NOU & CORECTAT: Efect complet reactiv care urmărește voturile și actualizează carouselul instant ---
+  useEffect(() => {
+    const currentUserId = auth.currentUser?.uid;
+    if (!currentUserId || attractions.length === 0) {
+      setRecommendations([]);
+      return;
+    }
+
+    const likedCategories = new Set<string>();
+    
+    // Vedem ce categorii au primit upvote (Like) de la userul curent
+    attractions.forEach(attr => {
+      const persistentVote = votesData[attr.id];
+      if (persistentVote?.voters?.[currentUserId] === "up") {
+        likedCategories.add(attr.category);
+      }
+    });
+
+    if (likedCategories.size === 0) {
+      setRecommendations([]);
+      return;
+    }
+
+    // Filtrăm atracțiile nevizitate/nevotate din acele categorii
+    const freshRecommendations = attractions.filter(attr => {
+      const persistentVote = votesData[attr.id];
+      const hasLiked = persistentVote?.voters?.[currentUserId] === "up";
+      const isAlreadyAdded = addedActivitiesNames.includes(attr.name);
+      
+      return likedCategories.has(attr.category) && !hasLiked && !isAlreadyAdded;
+    }).slice(0, 4);
+
+    setRecommendations(freshRecommendations);
+  }, [votesData, attractions, addedActivitiesNames]); // Ascultă direct modificările de voturi
 
   const scrollToLocation = (targetId: string) => {
     const element = document.getElementById(targetId);
@@ -407,6 +442,32 @@ export function Explore() {
             </div>
           </div>
 
+          {/* RECOMANDĂRI COMPLET REACTIVE ÎN TIMP REAL */}
+          {recommendedAttractions.length > 0 && (
+            <div className="w-full mt-6 animate-in fade-in duration-300">
+              <div className="flex items-center gap-2 mb-3 px-1">
+                <Sparkles className="w-4 h-4 text-indigo-500 fill-indigo-500 animate-pulse" />
+                <h2 className="text-sm font-black uppercase tracking-wider text-gray-400 dark:text-gray-400">Recomandat pentru tine</h2>
+              </div>
+              <div className="flex gap-4 overflow-x-auto pb-3 pt-1 scrollbar-hide no-scrollbar w-full px-1">
+                {recommendedAttractions.map((rec) => (
+                  <div key={rec.id} onClick={() => scrollToLocation(rec.id)} className="flex gap-3 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-3 rounded-2xl shadow-sm hover:shadow-md transition-all shrink-0 w-[260px] cursor-pointer active:scale-95">
+                    <div className="w-16 h-16 rounded-xl overflow-hidden relative shrink-0">
+                      <ImageWithFallback src={rec.image} alt={rec.name} className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex flex-col justify-center min-w-0 flex-1">
+                      <h4 className="text-sm font-extrabold truncate text-gray-900 dark:text-white">{rec.name}</h4>
+                      <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-wide mt-0.5">{rec.category}</p>
+                      <div className="flex items-center gap-1 mt-1 text-[11px] text-gray-400 font-medium">
+                        <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" /> {rec.rating}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/20 rounded-2xl p-4 my-8 w-full grid grid-cols-3 gap-2 text-center backdrop-blur-sm">
             <div><div className="text-lg font-black text-blue-600 dark:text-blue-400">{userSavedIds.length}</div><div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Favorite</div></div>
             <div className="border-x border-blue-200 dark:border-blue-800/50"><div className="text-lg font-black text-blue-600 dark:text-blue-400">{attractions.length}</div><div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Locații</div></div>
@@ -420,7 +481,6 @@ export function Explore() {
               const persistentVote = votesData[attr.id] || { up: 0, down: 0, voters: {} };
               const userVote = persistentVote.voters?.[auth.currentUser?.uid || ""] || null;
               
-              // MODIFICAT: Verificăm dacă numele atracției curente se află deja în itinerariul preluat din Firestore
               const isAlreadyAdded = addedActivitiesNames.includes(attr.name);
 
               return (
@@ -434,7 +494,7 @@ export function Explore() {
                 </div>
 
                 <div className="p-6">
-                  <div className="flex justify-between items-start mb-1 gap-4">
+                  <div className="flex justify-between items-start mb-1 gap-4 w-full">
                     <h3 className="text-xl font-extrabold leading-tight flex-1">{attr.name}</h3>
                     <div className="flex items-center gap-1 bg-yellow-50 dark:bg-yellow-900/20 px-2.5 py-1 rounded-lg shrink-0">
                       <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
@@ -463,7 +523,6 @@ export function Explore() {
                   </div>
 
                   <div className="flex gap-2">
-                    {/* MODIFICAT: Butonul își schimbă starea, culoarea și se blochează dacă atracția este deja în itinerariu */}
                     <button 
                       onClick={() => handleOpenAddDialog(attr)} 
                       disabled={isAlreadyAdded}
@@ -536,7 +595,7 @@ export function Explore() {
               </div>
               <div className="flex gap-3">
                 <button onClick={() => setIsChatDialogOpen(false)} className="flex-1 py-4 bg-gray-100 dark:bg-gray-800 text-gray-500 font-bold rounded-2xl text-xs uppercase tracking-widest">Anulează</button>
-                <button onClick={handleConfirmSendToChat} className="flex-[1.5] py-4 bg-blue-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-lg flex items-center justify-center gap-2"><Send className="w-4 h-4" /> Trimite</button>
+                <button onClick={handleConfirmSendToChat} className="flex-[1.5] py-4 bg-blue-600 text-white font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg flex items-center justify-center gap-2"><Send className="w-4 h-4" /> Trimite</button>
               </div>
           </div>
         </div>
