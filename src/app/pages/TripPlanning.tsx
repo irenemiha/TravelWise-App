@@ -12,6 +12,7 @@ import {
   Check,
   X,
   Loader2,
+  MessageSquare,
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useState, useEffect } from "react";
@@ -61,7 +62,7 @@ export function TripPlanning() {
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "member">("member");
   const [votedMembersCount, setVotedMembersCount] = useState(0);
 
-  // --- NOU: CALCULUL DINAMIC AL NUMĂRULUI TOTAL DE ZILE PENTRU SUB-TITLU ---
+  // --- CALCULUL DINAMIC AL NUMĂRULUI TOTAL DE ZILE PENTRU SUB-TITLU ---
   const calculateTotalDaysDuration = () => {
     if (!trip?.startDate || !trip?.endDate) return "";
     try {
@@ -251,7 +252,6 @@ export function TripPlanning() {
                 <div className="flex items-center gap-2 justify-center"><MapPin className="w-4 h-4" />{trip.destination}</div>
                 <div className="flex items-center gap-2 justify-center"><Calendar className="w-4 h-4" />{trip.startDate} - {trip.endDate}</div>
                 
-                {/* --- MODIFICAT: SUB-TITLU COMPUS (Membri • Durată Zile) CONSECVENT CU FIGMA --- */}
                 <div className="flex items-center gap-1.5 justify-center font-bold tracking-wide">
                   <Users className="w-4 h-4" />
                   <span>{members.length} Membri</span>
@@ -264,19 +264,45 @@ export function TripPlanning() {
                 </div>
               </div>
             </div>
-            <div className="flex gap-2 justify-center w-full max-w-xs mx-auto">
-              <button onClick={() => setShowInviteModal(true)} className="bg-white/20 text-white font-bold backdrop-blur-sm px-4 py-2 rounded-xl active:bg-white/30 transition-colors active:scale-95 flex items-center justify-center gap-2 flex-1 shadow-sm"><Share2 className="w-4 h-4" /><span>Distribuie</span></button>
-              {currentUserRole === "admin" && <button onClick={() => navigate(`/trip/${id}/trip-settings`)} className="bg-white/20 text-white font-bold backdrop-blur-sm px-4 py-2 rounded-xl active:bg-white/30 transition-colors active:scale-95 flex items-center justify-center gap-2 flex-1 shadow-sm"><Settings className="w-4 h-4" /><span>Setări</span></button>}
+            
+            {/* --- MODIFICAT: ALINIERE 3 BUTOANE SIMETRICE SUS (Distribue | Chat | Setări) --- */}
+            <div className="flex gap-2 justify-center w-full max-w-sm mx-auto">
+              <button 
+                onClick={() => setShowInviteModal(true)} 
+                className="bg-white/20 text-white font-bold backdrop-blur-sm px-3 py-2.5 rounded-xl active:bg-white/30 text-xs transition-colors active:scale-95 flex items-center justify-center gap-1.5 flex-1 shadow-sm truncate"
+              >
+                <Share2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Distribuie</span>
+              </button>
+              
+              <Link 
+                to={`/chat/${trip.id}`} 
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-2.5 rounded-xl text-xs transition-all active:scale-95 flex items-center justify-center gap-1.5 flex-1 shadow-md truncate"
+              >
+                <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                <span>Chat Grup</span>
+              </Link>
+              
+              {currentUserRole === "admin" && (
+                <button 
+                  onClick={() => navigate(`/trip/${id}/trip-settings`)} 
+                  className="bg-white/20 text-white font-bold backdrop-blur-sm px-3 py-2.5 rounded-xl active:bg-white/30 text-xs transition-colors active:scale-95 flex items-center justify-center gap-1.5 flex-1 shadow-sm truncate"
+                >
+                  <Settings className="w-3.5 h-3.5 shrink-0" />
+                  <span>Setări</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
       </div>
 
       <div className="w-full p-6 flex flex-col items-center">
+        {/* --- REVENIT: CLUSTERUL DE TAB-URI COMPACT CU CÂTE 3 COLOANE SIMETRICE --- */}
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm mb-6 w-full max-w-md p-1.5 flex flex-row gap-1 border dark:border-gray-800 transition-colors">
           <button className="flex-1 px-2 py-2.5 font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-lg text-center text-[13px]">Prezentare</button>
-          <Link to={`/explore/${trip.id}`} className="flex-1 px-2 py-2.5 font-bold text-gray-600 dark:text-gray-400 rounded-lg text-center text-[13px]">Explorează</Link>
-          <Link to={`/itinerary/${trip.id}`} className="flex-1 px-2 py-2.5 font-bold text-gray-600 dark:text-gray-400 rounded-lg text-center text-[13px]">Itinerariu</Link>
+          <Link to={`/explore/${trip.id}`} className="flex-1 px-2 py-2.5 font-bold text-gray-600 dark:text-gray-400 rounded-lg text-center text-[13px] flex items-center justify-center">Explorează</Link>
+          <Link to={`/itinerary/${trip.id}`} className="flex-1 px-2 py-2.5 font-bold text-gray-600 dark:text-gray-400 rounded-lg text-center text-[13px] flex items-center justify-center">Itinerariu</Link>
         </div>
 
         <div className="flex flex-col gap-6 w-full max-w-md items-center">

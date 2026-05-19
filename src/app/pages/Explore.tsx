@@ -57,9 +57,10 @@ export interface Attraction {
   price: string;
   saved: boolean;
   userVote: "up" | "down" | null;
+  lat: number;  // Mapate direct din coordonatele geometrice ale API-ului
+  lng: number;
 }
 
-// Interfață internă pentru a ține evidența programărilor existente
 interface BusySlot {
   day: number;
   time: string;
@@ -87,8 +88,6 @@ export function Explore() {
 
   const [addedActivitiesNames, setAddedActivitiesNames] = useState<string[]>([]);
   const [recommendedAttractions, setRecommendations] = useState<Attraction[]>([]);
-
-  // MODIFICAT: State nou pentru a stoca toate sloturile orare ocupate din itinerariu
   const [busySlots, setBusySlots] = useState<BusySlot[]>([]);
 
   const [isDayDropdownOpen, setIsDayDropdownOpen] = useState(false);
@@ -96,6 +95,21 @@ export function Explore() {
   
   const dayDropdownRef = useRef<HTMLDivElement>(null);
   const timeDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Stări noi pentru salvarea activităților manuale de la tastatură
+  const [isSaving, setIsSaving] = useState(false);
+  const [isCustomActivityModalOpen, setIsCustomActivityModalOpen] = useState(false);
+  const [customActivity, setCustomActivity] = useState({
+    name: "",
+    description: "",
+    location: "",
+    time: "10:00",
+    duration: "2h",
+    price: "",
+    type: "attraction",
+    day: 1,
+    image: ""
+  });
 
   const [addFormData, setAddFormData] = useState({
     targetTripId: tripId,
@@ -120,7 +134,6 @@ export function Explore() {
     }
   };
 
-  // --- MODIFICAT: FILTRARE AUTOMATĂ ORE DEJA REZERVATE ---
   const generateTimeOptions = () => {
     const options = [];
     for (let hour = 0; hour < 24; hour++) {
@@ -129,12 +142,10 @@ export function Explore() {
         const formattedMin = min.toString().padStart(2, '0');
         const timeString = `${formattedHour}:${formattedMin}`;
 
-        // Verificăm dacă ora curentă este deja blocată în ziua selectată în addFormData
         const isAlreadyOcupied = busySlots.some(
           (slot) => slot.day === addFormData.day && slot.time === timeString
         );
 
-        // Adăugăm ora în listă DOAR dacă slotul este liber
         if (!isAlreadyOcupied) {
           options.push(timeString);
         }
@@ -193,7 +204,6 @@ export function Explore() {
     return () => unsubVotes();
   }, [tripId]);
 
-  // --- MODIFICAT: ASCULTĂM SLOTURILE METADATELOR DE TIMP DIN FIREBASE ---
   useEffect(() => {
     if (!tripId) return;
     const itineraryRef = collection(db, "trips", tripId, "itinerary");
@@ -211,12 +221,11 @@ export function Explore() {
       });
 
       setAddedActivitiesNames(names);
-      setBusySlots(slots); // Actualizăm starea sloturilor rezervate în timp real
+      setBusySlots(slots); 
     });
     return () => unsubItineraryCheck();
   }, [tripId]);
 
-  // Schimbăm automat ora implicită din formular dacă „10:00” este ocupată
   useEffect(() => {
     const available = generateTimeOptions();
     if (available.length > 0 && !available.includes(addFormData.time)) {
@@ -291,6 +300,9 @@ export function Explore() {
           else if (cats.includes("heritage")) category = "Istoric";
           const cleanName = (p.name || "Punct turistic").split(/[($]/)[0].trim();
           
+          const defaultLat = parseFloat(lat);
+          const defaultLng = parseFloat(lon);
+
           return {
             id: attractionId,
             name: cleanName,
@@ -303,7 +315,10 @@ export function Explore() {
             duration: category === "Restaurant" ? "1.5h" : "2h",
             price: generateDeterministicPrice(attractionId, category),
             saved: userSavedIds.includes(attractionId),
-            userVote: null
+            userVote: null,
+            // RECONSTRUIT: Extragere securizată a coordonatelor hărții din GeoJSON pentru algoritmul hibrid
+            lat: f.geometry?.coordinates ? Number(f.geometry.coordinates[1]) : defaultLat,
+            lng: f.geometry?.coordinates ? Number(f.geometry.coordinates[0]) : defaultLng
           };
         });
 
@@ -382,6 +397,7 @@ export function Explore() {
   const handleConfirmAdd = async () => {
     if (!selectedAttraction || !auth.currentUser) return;
     try {
+      // RECONSTRUIT: Maparea și salvarea explicită a lat/lng ca numere în Firestore
       await addDoc(collection(db, "trips", addFormData.targetTripId, "itinerary"), {
         name: selectedAttraction.name,
         description: selectedAttraction.description,
@@ -393,10 +409,84 @@ export function Explore() {
         type: selectedAttraction.category === "Restaurante" ? "meal" : "attraction",
         image: selectedAttraction.image,
         addedBy: auth.currentUser.uid,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        lat: Number(selectedAttraction.lat),
+        lng: Number(selectedAttraction.lng)
       });
       toast.success("Adăugat!"); setIsAddDialogOpen(false);
     } catch (e) { toast.error("Eroare salvare."); }
+  };
+
+  // --- RECONSTRUIT: LOGICA DE GEOCODING ASINCRON LA SALVAREA MANUALĂ ---
+  const handleSaveCustomActivity = async () => {
+    if (!customActivity.name || !customActivity.location) {
+      toast.error("Numele și locația sunt obligatorii!");
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const cityName = trip?.destination?.split(',')[0].trim() || "";
+      const searchQuery = `${customActivity.location}, ${cityName}`;
+      
+      const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`
+      );
+      const geoData = await geoRes.json();
+
+      let finalLat = 0;
+      let finalLng = 0;
+
+      if (geoData && geoData.length > 0) {
+        finalLat = parseFloat(geoData[0].lat);
+        finalLng = parseFloat(geoData[0].lon);
+      } else {
+        finalLat = trip?.lat ? Number(trip.lat) : 0;
+        finalLng = trip?.lng ? Number(trip.lng) : 0;
+      }
+
+      const finalLocationText = customActivity.location.toLowerCase().includes(cityName.toLowerCase())
+        ? customActivity.location
+        : `${customActivity.location}, ${cityName}`;
+
+      await addDoc(collection(db, "trips", tripId, "itinerary"), {
+        name: customActivity.name,
+        description: customActivity.description || "Activitate adăugată manual",
+        location: finalLocationText, 
+        time: customActivity.time,
+        day: Number(customActivity.day),
+        duration: customActivity.duration || "2h",
+        price: customActivity.price || "Gratuit",
+        type: customActivity.type, 
+        image: customActivity.image || `https://tse1.mm.bing.net/th?q=${encodeURIComponent(customActivity.name + " " + cityName)}&w=1200&h=800&c=1&p=0`,
+        addedBy: auth.currentUser?.uid,
+        createdAt: serverTimestamp(),
+        lat: finalLat,
+        lng: finalLng
+      });
+
+      toast.success("Activitate manuală adăugată cu succes!");
+      setIsCustomActivityModalOpen(false); 
+      
+      setCustomActivity({
+        name: "",
+        description: "",
+        location: "",
+        time: "10:00",
+        duration: "2h",
+        price: "",
+        type: "attraction",
+        day: 1,
+        image: ""
+      });
+
+    } catch (error) {
+      console.error("Eroare la salvarea activității manuale:", error);
+      toast.error("A apărut o eroare la salvare.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleConfirmSendToChat = async () => {
@@ -436,7 +526,6 @@ export function Explore() {
   const handleOpenAddDialog = (attraction: Attraction) => {
     setSelectedAttraction(attraction);
     
-    // Inițializăm ora formularului cu prima valoare validă disponibilă din noul set filtrat
     const available = generateTimeOptions();
     const defaultTime = available.includes("10:00") ? "10:00" : (available[0] || "00:00");
     
@@ -474,6 +563,15 @@ export function Explore() {
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input type="text" placeholder="Caută locații..." value={searchQuery} onFocus={() => setIsDropdownOpen(true)} onChange={(e) => { setSearchQuery(e.target.value); setIsDropdownOpen(true); }} className="w-full pl-12 pr-4 py-4 border border-gray-200 dark:border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white dark:bg-gray-900 shadow-sm transition-all" />
             </div>
+            
+            {/* Buton adițional pentru deschiderea modalului de activitate manuală de test */}
+            <button 
+              onClick={() => setIsCustomActivityModalOpen(true)} 
+              className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md active:scale-95 transition-all"
+            >
+              + Adaugă atracție manuală (Custom)
+            </button>
+
             <div className="flex w-full justify-between gap-4 overflow-x-auto py-2 px-1 scrollbar-hide no-scrollbar">
               {categories.map((cat) => (
                 <div key={cat} className="flex flex-col items-center gap-2 shrink-0">
@@ -544,7 +642,7 @@ export function Explore() {
                     <button onClick={() => handleOriginalVote(attr.id, "down")} className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl font-bold ${userVote === "down" ? "bg-red-500 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-500"}`}><ThumbsDown className="w-4 h-4" /> {persistentVote.down || 0}</button>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => handleOpenAddDialog(attr)} disabled={isAlreadyAdded} className={`flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg ${isAlreadyAdded ? "bg-gray-200 text-gray-400 cursor-not-allowed" : "bg-gray-900 dark:bg-white text-white dark:text-gray-900"}`}>{isAlreadyAdded ? "Adăugat" : "Adaugă"}</button>
+                    <button onClick={() => handleOpenAddDialog(attr)} disabled={isAlreadyAdded} className={`flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg ${isAlreadyAdded ? "bg-gray-200 text-gray-400 cursor-not-allowed shadow-none active:scale-100" : "bg-gray-900 dark:bg-white text-white dark:text-gray-900"}`}>{isAlreadyAdded ? "Adăugat" : "Adaugă"}</button>
                     <button onClick={() => handleOpenChatDialog(attr)} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg"><MessageCircle className="w-4 h-4" /> Chat</button>
                   </div>
                 </div>
@@ -554,7 +652,7 @@ export function Explore() {
         </div>
       </div>
 
-      {/* POP-UP MINIMALIST CU SEPARATOARE INTELIGENTE ȘI ORE DINAMICE FILTRATE */}
+      {/* POP-UP MINIMALIST ADĂUGARE FORMULAR STANDARD */}
       {isAddDialogOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-sm border border-gray-100 dark:border-gray-800 shadow-2xl">
@@ -572,7 +670,6 @@ export function Explore() {
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4">
-                  {/* CUSTOM SELECTOR: ZIUA */}
                   <div ref={dayDropdownRef} className="space-y-2 relative">
                     <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Ziua</label>
                     <button 
@@ -603,7 +700,6 @@ export function Explore() {
                     )}
                   </div>
                   
-                  {/* CUSTOM SELECTOR: ORA START (FILTRATĂ DINAMIC) */}
                   <div ref={timeDropdownRef} className="space-y-2 relative">
                     <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Ora Start</label>
                     <button 
@@ -650,6 +746,69 @@ export function Explore() {
                   Confirmă
                 </button>
               </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- RECONSTRUIT: MODAL INTERACTIV PENTRU ADĂUGARE ACTIVITĂȚI MANUALE (CUSTOM) --- */}
+      {isCustomActivityModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-6 w-full max-w-sm border border-gray-100 dark:border-gray-800 shadow-2xl flex flex-col items-center">
+            <div className="flex justify-between items-center w-full mb-4">
+              <h3 className="text-lg font-bold">Atracție Custom (Manuală)</h3>
+              <button onClick={() => setIsCustomActivityModalOpen(false)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-all"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="space-y-3 w-full mb-6 text-left">
+              <div>
+                <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Nume Locație</label>
+                <input type="text" placeholder="Ex: Ateneul Român, Cafenea etc." value={customActivity.name} onChange={(e) => setCustomActivity({ ...customActivity, name: e.target.value })} className="w-full mt-1 bg-gray-50 dark:bg-gray-800 border p-3.5 rounded-xl font-semibold text-sm outline-none text-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500" />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Adresă / Locație specifică</label>
+                <input type="text" placeholder="Ex: Strada Benjamin Franklin 1-3" value={customActivity.location} onChange={(e) => setCustomActivity({ ...customActivity, location: e.target.value })} className="w-full mt-1 bg-gray-50 dark:bg-gray-800 border p-3.5 rounded-xl font-semibold text-sm outline-none text-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500" />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Descriere scurtă</label>
+                <input type="text" placeholder="O scurtă descriere a obiectivului..." value={customActivity.description} onChange={(e) => setCustomActivity({ ...customActivity, description: e.target.value })} className="w-full mt-1 bg-gray-50 dark:bg-gray-800 border p-3.5 rounded-xl font-semibold text-sm outline-none text-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Tip Activitate</label>
+                  <select value={customActivity.type} onChange={(e) => setCustomActivity({ ...customActivity, type: e.target.value })} className="w-full mt-1 bg-gray-50 dark:bg-gray-800 border p-3.5 rounded-xl font-semibold text-xs outline-none text-gray-800 dark:text-white">
+                    <option value="attraction">Atracție</option>
+                    <option value="meal">Restaurant / Masă</option>
+                    <option value="transport">Transport</option>
+                    <option value="break">Timp liber</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Preț estimat</label>
+                  <input type="text" placeholder="Ex: 15 € sau Gratuit" value={customActivity.price} onChange={(e) => setCustomActivity({ ...customActivity, price: e.target.value })} className="w-full mt-1 bg-gray-50 dark:bg-gray-800 border p-3.5 rounded-xl font-semibold text-center text-sm outline-none" />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 w-full">
+              <button onClick={() => setIsCustomActivityModalOpen(false)} className="flex-1 py-4 bg-gray-100 dark:bg-gray-800 text-gray-500 font-bold rounded-2xl text-xs uppercase tracking-widest">Anulează</button>
+              <button 
+                onClick={handleSaveCustomActivity}
+                disabled={isSaving}
+                className="flex-[1.5] py-4 bg-blue-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-lg flex items-center justify-center gap-2 disabled:bg-blue-400"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Se caută pe hartă...</span>
+                  </>
+                ) : (
+                  <span>Confirmă</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
