@@ -51,20 +51,7 @@ export interface ItineraryDay {
   activities: Activity[];
 }
 
-// --- FUNCTII UTILITARE (FĂRĂ DUPLICARE NUME ȘI CU URL MAPS CORECT) ---
-
-const getDistance = (act1: any, act2: any) => {
-  if (!act1?.lat || !act1?.lng || !act2?.lat || !act2?.lng) return 0;
-  const radlat1 = (Math.PI * act1.lat) / 180;
-  const radlat2 = (Math.PI * act2.lat) / 180;
-  const theta = act1.lng - act2.lng;
-  const radtheta = (Math.PI * theta) / 180;
-  let dist = Math.sin(radlat1) * Math.sin(radlat2) + Math.cos(radlat1) * Math.cos(radlat2) * Math.cos(radtheta);
-  if (dist > 1) dist = 1;
-  dist = Math.acos(dist);
-  dist = (dist * 180) / Math.PI;
-  return dist * 60 * 1.1515 * 1.609344; // distanta in km
-};
+// --- FUNCTII UTILITARE REPARATE ȘI OPTIMIZATE ---
 
 const calculateDayTimeRange = (activities: Activity[]) => {
   if (!activities || activities.length === 0) return "Fără activități";
@@ -76,7 +63,6 @@ const getCleanQuery = (act: Activity) => {
   const name = act.name || "";
   const loc = act.location || "";
   
-  // Dacă locația conține deja numele sau sunt identice, trimitem doar locația
   if (loc.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(loc.toLowerCase())) {
     return encodeURIComponent(loc);
   }
@@ -88,7 +74,7 @@ const generateGoogleMapsRouteUrl = (activities: Activity[]) => {
   
   const origin = getCleanQuery(activities[0]);
   if (activities.length === 1) {
-    return `https://www.google.com/maps/search/?api=1&query=${origin}`;
+    return `http://maps.google.com/?q=${origin}`;
   }
   
   const destination = getCleanQuery(activities[activities.length - 1]);
@@ -97,7 +83,6 @@ const generateGoogleMapsRouteUrl = (activities: Activity[]) => {
     .map(act => getCleanQuery(act))
     .join("|");
   
-  // Formatul universal oficial de rute Google Maps
   return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypoints ? `&waypoints=${waypoints}` : ''}&travelmode=driving`;
 };
 
@@ -120,7 +105,6 @@ export function Itinerary() {
     activityId: string | null;
   }>({ isOpen: false, type: null, activityId: null });
 
-  // Formatează data calendaristică reală adăugând zilele relativ la startDate
   const formatCalendarDate = (dayNumber: number) => {
     if (!trip?.startDate) return `Ziua ${dayNumber}`;
     try {
@@ -188,52 +172,35 @@ export function Itinerary() {
     return () => unsubItinerary();
   }, [tripId]);
 
-  // Generarea automată a planului pe zile bazat pe top voturi și distanță
+  // --- LOGICĂ NOUĂ ACTIVATĂ AUTOMAT: GENERARE DUPĂ DEPARTAJARE PRIN VOTURI (UPVOTES - DOWNVOTES) ---
   useEffect(() => {
     if (trip?.votingStatus !== "finished" || proposedAttractions.length === 0) {
       setItinerary([]);
       return;
     }
 
-    // 1. Calculăm scorurile agregate (upvotes - downvotes)
+    // 1. Luăm în calcul atât Like-urile (+1) cât și Dislike-urile (-1) pentru ordonare democratică
     const scored = proposedAttractions.map(act => {
       const votes = votesData[act.id] || { up: 0, down: 0 };
-      const score = (votes.up || 0) - (votes.down || 0);
+      const score = (votes.up || 0) - (votes.down || 0); 
       return { ...act, score };
-    }).sort((a, b) => b.score - a.score);
+    }).sort((a, b) => b.score - a.score); // Sortează descrescător după popularitatea netă
 
     const totalDays = getMaxDaysCount();
-    // 2. Tăiem lista la plafonul maxim admisibil (Zile * 5 atracții)
+    
+    // 2. Selectăm doar topul absolut în limita zilelor disponibile (Zile * 5 atracții maxim)
     const topCandidates = scored.slice(0, totalDays * 5);
 
     const daysArray: ItineraryDay[] = [];
     const defaultHours = ["10:00", "12:30", "15:00", "17:30", "20:00"];
 
     for (let d = 1; d <= totalDays; d++) {
+      // Extragem pachetul ordonat de câte 5 elemente destinat exclusiv zilei curente
       const daySlice = topCandidates.slice((d - 1) * 5, d * 5);
       
       if (daySlice.length > 0) {
-        const optimizedDayActivities: any[] = [];
-        let remaining = [...daySlice];
-        
-        // Verificăm dacă punctele au coordonate GPS pentru rularea algoritmului de proximitate
-        const hasCoordinates = remaining.every(act => act.lat && act.lng);
-
-        if (hasCoordinates) {
-          let current = remaining.shift()!;
-          optimizedDayActivities.push(current);
-
-          while (remaining.length > 0) {
-            remaining.sort((a, b) => getDistance(current, a) - getDistance(current, b));
-            current = remaining.shift()!;
-            optimizedDayActivities.push(current);
-          }
-        } else {
-          // Fallback de siguranță: dacă nu au coordonate GPS, le lăsăm ordonate nativ după scorul voturilor
-          optimizedDayActivities.push(...remaining);
-        }
-
-        const finalizedActivities = optimizedDayActivities.map((act, idx) => ({
+        // Distribuim direct pe ore fixe conform topului net de voturi (fără calcul de locație)
+        const finalizedActivities = daySlice.map((act, idx) => ({
           ...act,
           day: d,
           time: defaultHours[idx] || "12:00"
@@ -383,7 +350,7 @@ export function Itinerary() {
                     <span className="text-base font-bold tracking-wide">{calculateDayTimeRange(day.activities)}</span>
                   </div>
 
-                  <a href={generateGoogleMapsRouteUrl(day.activities)} target="_blank" rel="noopener noreferrer" className="bg-white text-gray-900 font-black text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all"><Map className="w-3.5 h-3.5 text-blue-600" /> Vezi traseul optimizat pe hartă</a>
+                  <a href={generateGoogleMapsRouteUrl(day.activities)} target="_blank" rel="noopener noreferrer" className="bg-white text-gray-900 font-black text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all"><Map className="w-3.5 h-3.5 text-blue-600" /> Vezi traseul pe hartă</a>
                 </div>
 
                 <div className="w-full space-y-6 flex flex-col items-center">

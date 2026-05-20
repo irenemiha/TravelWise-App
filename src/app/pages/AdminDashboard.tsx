@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router";
 import { 
   Users, Calendar, MapPin, TrendingUp, 
-  ShieldAlert, Trash2, UserCheck, LogOut, Loader2 
+  ShieldAlert, Trash2, UserCheck, LogOut, Loader2, User 
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -27,6 +27,7 @@ export interface Trip {
   image: string;
   participants: string[];
   ownerId: string;
+  ownerName?: string; 
   itinerary?: any[];
 }
 
@@ -48,23 +49,35 @@ export function AdminDashboard() {
   const [globalVotesTotal, setGlobalVotesTotal] = useState(0);
 
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user || localStorage.getItem('isAdminLoggedIn') !== 'true') {
         navigate("/");
         return;
       }
       setAuthLoading(false);
 
-      // 1. Ascultăm în timp real TOATE călătoriile (fără filtru de participant)
+      // 1. Preluăm snapshot-ul de utilizatori o singură dată ca dicționar virtual
+      const usersSnap = await getDocs(collection(db, "users"));
+      const usersMap: { [key: string]: string } = {};
+      usersSnap.docs.forEach(uDoc => {
+        const uData = uDoc.data();
+        usersMap[uDoc.id] = uData.name || uData.displayName || "Utilizator TravelWise";
+      });
+
+      // 2. Ascultăm în timp real TOATE călătoriile globale din sistem
       const unsubscribeTrips = onSnapshot(collection(db, "trips"), async (snapshot) => {
-        const tripsData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as Trip[];
+        const tripsData = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            ownerName: data.ownerName || usersMap[data.ownerId] || "Administrator"
+          };
+        }) as Trip[];
         
         setTrips(tripsData);
 
-        // Calculăm voturile globale din sub-colecțiile fiecărei călătorii
+        // Calculăm voturile globale din sub-colecții
         let totalVotesFound = 0;
         for (const trip of tripsData) {
           try {
@@ -83,7 +96,7 @@ export function AdminDashboard() {
         setGlobalVotesTotal(totalVotesFound);
       });
 
-      // 2. Ascultăm în timp real TOȚI utilizatorii înregistrați
+      // 3. Ascultăm în timp real TOȚI utilizatorii înregistrați
       const unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => {
         const usersData = snapshot.docs.map(doc => ({
           id: doc.id,
@@ -139,7 +152,14 @@ export function AdminDashboard() {
       <div className="w-full flex flex-col max-w-md mx-auto">
         
         {/* Header Admin */}
-        <div className="w-full flex flex-col items-center mb-8">
+        <div className="w-full flex flex-col items-center mb-8 relative">
+          <button 
+            onClick={handleLogout}
+            className="absolute right-0 top-0 p-2.5 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl text-gray-400 hover:text-red-500 shadow-sm transition-colors"
+            title="Deconectare Admin"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
           <div className="w-16 h-16 rounded-3xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-4 shadow-xl shadow-red-500/10">
             <ShieldAlert className="w-8 h-8 text-red-600 dark:text-red-400" />
           </div>
@@ -148,7 +168,7 @@ export function AdminDashboard() {
           </h1>
         </div>
 
-        {/* Stats Grid - Date Reale Globale */}
+        {/* Stats Grid - CORECTAT COMPLET LA RESTRUCTURAREA ELEMENTELOR JSX */}
         <div className="grid grid-cols-2 gap-3 w-full mb-8">
           {[
             { label: "Total Călătorii", value: trips.length, icon: Calendar, color: "text-blue-500", bg: "bg-blue-50 dark:bg-blue-900/20", path: "/admin-trips" },
@@ -156,7 +176,6 @@ export function AdminDashboard() {
             { label: "Destinații", value: [...new Set(trips.map(t => t.destination))].length, icon: MapPin, color: "text-green-500", bg: "bg-green-50 dark:bg-green-900/20", path: null },
             { label: "Voturi Sistem", value: globalVotesTotal, icon: TrendingUp, color: "text-orange-500", bg: "bg-orange-50 dark:bg-orange-900/20", path: null },
           ].map((stat, idx) => {
-            // Clasale comune pentru design, plus efectele de hover doar dacă există un drum (path) definit
             const cardStyles = `bg-white dark:bg-gray-900 p-5 rounded-[2rem] border border-gray-100 dark:border-gray-800 flex flex-col items-center shadow-sm select-none transition-all duration-200 ${
               stat.path 
                 ? 'hover:scale-[1.03] hover:shadow-md cursor-pointer active:scale-95' 
@@ -173,7 +192,7 @@ export function AdminDashboard() {
               </>
             );
 
-            // Dacă avem setată o rută, învelim cardul într-un <Link>, altfel returnăm un simplu <div>
+            // CORECTAT: Elementele se deschid și se închid simetric în ambele ramuri ale condiției
             return stat.path ? (
               <Link key={idx} to={stat.path} className={cardStyles}>
                 {cardContent}
@@ -186,7 +205,7 @@ export function AdminDashboard() {
           })}
         </div>
 
-        {/* Section: Management Utilizatori (Previzualizare rapida din DB) */}
+        {/* Section: Management Utilizatori */}
         <div className="w-full mb-8">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-[0.2em] flex items-center gap-2">
@@ -202,7 +221,7 @@ export function AdminDashboard() {
           <div className="flex flex-col gap-3">
             {users.slice(0, 3).map(user => (
               <div key={user.id} className="bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 flex items-center justify-between shadow-sm">
-                <div>
+                <div className="text-left">
                   <div className="text-sm font-bold text-gray-900 dark:text-white">{user.name || "Utilizator Nou"}</div>
                   <div className="text-[10px] text-gray-500 font-medium">{user.email}</div>
                 </div>
@@ -217,7 +236,7 @@ export function AdminDashboard() {
           </div>
         </div>
 
-        {/* Section: Monitorizare Călătorii (Previzualizare rapida din DB) */}
+        {/* Section: Monitorizare Călătorii */}
         <div className="w-full">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-[0.2em]">Monitorizare Călătorii ({trips.length})</h2>
@@ -238,13 +257,18 @@ export function AdminDashboard() {
                     className="w-full h-full object-cover" 
                   />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold text-gray-900 dark:text-white truncate">{trip.destination}</div>
-                  <div className="text-[10px] text-gray-500 italic truncate">{trip.name}</div>
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="text-sm font-black text-gray-900 dark:text-white truncate">{trip.destination}</div>
+                  <div className="text-[10px] text-gray-500 font-bold truncate mt-0.5">{trip.name}</div>
+                  
+                  <div className="flex items-center gap-1 text-[9px] text-gray-400 font-extrabold uppercase tracking-tight mt-1.5">
+                    <User className="w-3 h-3 text-blue-500 shrink-0" />
+                    <span className="truncate max-w-[140px]">{trip.ownerName}</span>
+                  </div>
                 </div>
                 <button 
                   onClick={() => setItemToDelete({ id: trip.id, type: 'trip' })}
-                  className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"
+                  className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors shrink-0"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>

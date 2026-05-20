@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
-import { Compass, Trash2, MapPin, Calendar, Search, ArrowLeft, Filter, Loader2, Users, Edit2, X, Check } from "lucide-react";
+import { Compass, Trash2, MapPin, Calendar, Search, ArrowLeft, Filter, Loader2, Users, Edit2, X, Check, User } from "lucide-react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { toast } from "sonner";
 
 // IMPORTURI FIREBASE REALE
 import { db, auth } from "../../firebase";
-import { collection, onSnapshot, doc, deleteDoc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, doc, deleteDoc, updateDoc, getDocs } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 
 export interface Trip {
@@ -19,7 +19,8 @@ export interface Trip {
   image: string;
   participants: string[];
   ownerId: string;
-  status?: "planning" | "voting" | "confirmed"; // Câmp adăugat/opțional pentru control admin
+  ownerName?: string; // Câmp adăugat dinamic pentru afișarea numelui creatorului
+  status?: "planning" | "voting" | "confirmed";
   itinerary?: any[];
 }
 
@@ -39,17 +40,31 @@ export function AdminTrips() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user || localStorage.getItem('isAdminLoggedIn') !== 'true') {
         navigate("/");
         return;
       }
 
+      // 1. Preluăm cache-ul local de utilizatori o singură dată pentru mapare rapidă
+      const usersSnap = await getDocs(collection(db, "users"));
+      const usersMap: { [key: string]: string } = {};
+      usersSnap.docs.forEach(uDoc => {
+        const uData = uDoc.data();
+        usersMap[uDoc.id] = uData.name || uData.displayName || "Utilizator TravelWise";
+      });
+
+      // 2. Ascultăm modificările din colecția de călătorii în timp real
       const unsubscribeTrips = onSnapshot(collection(db, "trips"), (snapshot) => {
-        const tripsData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as Trip[];
+        const tripsData = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            // Atașăm numele utilizatorului mapând ownerId-ul din dicționarul virtual creat mai sus
+            ownerName: data.ownerName || usersMap[data.ownerId] || "Administrator"
+          };
+        }) as Trip[];
         
         setTrips(tripsData);
         setLoading(false);
@@ -64,7 +79,7 @@ export function AdminTrips() {
     return () => unsubscribeAuth();
   }, [navigate]);
 
-  // Deschide fereastra de editare cu datele călătoriei selectate
+  // Fereastra de editare inline
   const handleOpenEdit = (trip: Trip) => {
     setTripToEdit(trip);
     setEditName(trip.name || "");
@@ -72,7 +87,6 @@ export function AdminTrips() {
     setEditStatus(trip.status || calculateTripStatus(trip));
   };
 
-  // Salvează modificările în Firestore global
   const handleSaveChanges = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tripToEdit) return;
@@ -86,10 +100,10 @@ export function AdminTrips() {
         status: editStatus
       });
       toast.success("Călătoria a fost actualizată în baza de date!");
-      setTripToEdit(null); // Închidem modalul
+      setTripToEdit(null);
     } catch (error) {
       console.error("Eroare la salvare:", error);
-      toast.error("Nu s-au putut salva modificările călătoriei.");
+      toast.error("Nu s-au putut salva modificările.");
     } finally {
       setIsSaving(false);
     }
@@ -108,7 +122,6 @@ export function AdminTrips() {
     }
   };
 
-  // Funcții ajutătoare native
   const getDisplayImage = (trip: Trip) => {
     const cityName = (trip.destination || 'travel').split(',')[0].trim();
     const isBroken = !trip.image || trip.image === "" || trip.image.includes("picsum.photos");
@@ -120,7 +133,7 @@ export function AdminTrips() {
   };
 
   const calculateTripStatus = (trip: Trip): "planning" | "voting" | "confirmed" => {
-    if (trip.status) return trip.status; // Dacă adminul a forțat un status manual, îl respectăm
+    if (trip.status) return trip.status;
     const itinerary = trip.itinerary || [];
     const hasActivities = itinerary.some((day: any) => day.activities && day.activities.length > 0);
     if (hasActivities) return "voting";
@@ -146,7 +159,8 @@ export function AdminTrips() {
 
   const filteredTrips = trips.filter(trip => 
     (trip.destination?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-    (trip.name?.toLowerCase() || "").includes(searchTerm.toLowerCase())
+    (trip.name?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+    (trip.ownerName?.toLowerCase() || "").includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -175,7 +189,7 @@ export function AdminTrips() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input 
               type="text"
-              placeholder="Caută destinație..."
+              placeholder="Caută destinație, grup sau organizator..."
               className="w-full bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl py-3.5 pl-11 pr-4 text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white shadow-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -215,13 +229,19 @@ export function AdminTrips() {
                       </span>
                     </div>
 
+                    {/* ZONA ACTUALIZATĂ: Adăugat rândul cu creatorul călătoriei */}
                     <div className="flex justify-between items-end" onClick={(e) => e.stopPropagation()}>
                       <div className="space-y-0.5">
                         <div className="flex items-center gap-1 text-[10px] text-gray-500 font-bold">
                           <Calendar className="w-3 h-3 text-purple-500" /> {formatTripDates(trip.startDate, trip.endDate)}
                         </div>
-                        <div className="flex items-center gap-1 text-[9px] text-gray-400 font-medium">
-                          <Users className="w-3 h-3 text-green-500" /> {trip.participants?.length || 0} membri
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1 text-[9px] text-gray-400 font-bold uppercase tracking-tight">
+                            <User className="w-3 h-3 text-blue-500" /> {trip.ownerName}
+                          </div>
+                          <div className="flex items-center gap-1 text-[9px] text-gray-400 font-medium">
+                            <Users className="w-3 h-3 text-green-500" /> {trip.participants?.length || 0} membri
+                          </div>
                         </div>
                       </div>
                       
@@ -269,7 +289,6 @@ export function AdminTrips() {
               </button>
             </div>
 
-            {/* Destinație */}
             <div className="space-y-1.5">
               <label className="text-[10px] font-black uppercase tracking-wider text-gray-400">Oraș / Destinație</label>
               <input 
@@ -281,7 +300,6 @@ export function AdminTrips() {
               />
             </div>
 
-            {/* Nume Grup */}
             <div className="space-y-1.5">
               <label className="text-[10px] font-black uppercase tracking-wider text-gray-400">Numele Grupului (Titlu)</label>
               <input 
@@ -293,7 +311,6 @@ export function AdminTrips() {
               />
             </div>
 
-            {/* Status Călătorie */}
             <div className="space-y-1.5">
               <label className="text-[10px] font-black uppercase tracking-wider text-gray-400">Stadiu / Status Călătorie</label>
               <select 
@@ -307,7 +324,14 @@ export function AdminTrips() {
               </select>
             </div>
 
-            {/* Date Info - Citire Doar */}
+            {/* Zonă Informații Organizator în Modal */}
+            <div className="space-y-1.5 opacity-80">
+              <label className="text-[10px] font-black uppercase tracking-wider text-gray-400">Inițiator / Creator de Grup</label>
+              <div className="w-full bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-200 dark:border-gray-700 rounded-2xl py-3.5 px-4 text-sm text-gray-600 dark:text-gray-300 font-bold flex items-center gap-2">
+                <User className="w-4 h-4 text-blue-500" /> {tripToEdit.ownerName}
+              </div>
+            </div>
+
             <div className="space-y-1.5 opacity-60">
               <label className="text-[10px] font-black uppercase tracking-wider text-gray-400">Perioada Călătoriei (Inalterabilă local)</label>
               <div className="w-full bg-gray-100 dark:bg-gray-800/40 border border-dashed border-gray-200 dark:border-gray-700 rounded-2xl py-3.5 px-4 text-sm text-gray-500 font-medium">
@@ -315,7 +339,6 @@ export function AdminTrips() {
               </div>
             </div>
 
-            {/* Acțiuni */}
             <div className="flex gap-2 mt-2">
               <button
                 type="button"

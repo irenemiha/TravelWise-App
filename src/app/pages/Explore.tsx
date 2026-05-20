@@ -13,7 +13,6 @@ import {
   ArrowLeft,
   CalendarPlus,
   X,
-  ChevronDown,
   Loader2,
   Utensils,
   Palmtree,
@@ -22,7 +21,8 @@ import {
   LayoutGrid,
   Send,
   Sparkles,
-  CheckCircle2
+  CheckCircle2,
+  Lock // Adăugat pentru iconița de sesiune blocată
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useState, useEffect, useRef } from "react";
@@ -57,13 +57,8 @@ export interface Attraction {
   price: string;
   saved: boolean;
   userVote: "up" | "down" | null;
-  lat: number;  // Mapate direct din coordonatele geometrice ale API-ului
+  lat: number;  
   lng: number;
-}
-
-interface BusySlot {
-  day: number;
-  time: string;
 }
 
 export function Explore() {
@@ -79,7 +74,6 @@ export function Explore() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   
   const [userSavedIds, setUserSavedIds] = useState<string[]>([]);
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
   const [selectedAttraction, setSelectedAttraction] = useState<Attraction | null>(null);
   const [votesData, setVotesData] = useState<{[key: string]: any}>({});
@@ -88,71 +82,21 @@ export function Explore() {
 
   const [addedActivitiesNames, setAddedActivitiesNames] = useState<string[]>([]);
   const [recommendedAttractions, setRecommendations] = useState<Attraction[]>([]);
-  const [busySlots, setBusySlots] = useState<BusySlot[]>([]);
 
-  const [isDayDropdownOpen, setIsDayDropdownOpen] = useState(false);
-  const [isTimeDropdownOpen, setIsTimeDropdownOpen] = useState(false);
-  
-  const dayDropdownRef = useRef<HTMLDivElement>(null);
-  const timeDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Stări noi pentru salvarea activităților manuale de la tastatură
+  // Stări pentru salvarea activităților manuale de la tastatură
   const [isSaving, setIsSaving] = useState(false);
   const [isCustomActivityModalOpen, setIsCustomActivityModalOpen] = useState(false);
   const [customActivity, setCustomActivity] = useState({
     name: "",
     description: "",
     location: "",
-    time: "10:00",
-    duration: "2h",
     price: "",
-    type: "attraction",
-    day: 1,
-    image: ""
-  });
-
-  const [addFormData, setAddFormData] = useState({
-    targetTripId: tripId,
-    day: 1,
-    time: "10:00",
-    duration: "2h"
+    type: "attraction"
   });
 
   const [chatFormData, setChatFormData] = useState({
     targetTripId: tripId
   });
-
-  const getMaxDaysCount = () => {
-    if (!trip?.startDate || !trip?.endDate) return 1;
-    try {
-      const start = new Date(trip.startDate);
-      const end = new Date(trip.endDate);
-      const diffTime = Math.abs(end.getTime() - start.getTime());
-      return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-    } catch (e) {
-      return 1;
-    }
-  };
-
-  const generateTimeOptions = () => {
-    const options = [];
-    for (let hour = 0; hour < 24; hour++) {
-      for (let min = 0; min < 60; min += 30) {
-        const formattedHour = hour.toString().padStart(2, '0');
-        const formattedMin = min.toString().padStart(2, '0');
-        const timeString = `${formattedHour}:${formattedMin}`;
-
-        const isAlreadyOcupied = busySlots.some(
-          (slot) => slot.day === addFormData.day && slot.time === timeString
-        );
-
-        if (!isAlreadyOcupied) {
-          options.push(timeString);
-        }
-      }
-    }
-    return options;
-  };
 
   const getDeterministicSeed = (str: string) => {
     let hash = 0;
@@ -210,41 +154,14 @@ export function Explore() {
     
     const unsubItineraryCheck = onSnapshot(itineraryRef, (snapshot) => {
       const names: string[] = [];
-      const slots: BusySlot[] = [];
-
       snapshot.docs.forEach(doc => {
         const data = doc.data();
         if (data.name) names.push(data.name);
-        if (data.day && data.time) {
-          slots.push({ day: Number(data.day), time: String(data.time) });
-        }
       });
-
       setAddedActivitiesNames(names);
-      setBusySlots(slots); 
     });
     return () => unsubItineraryCheck();
   }, [tripId]);
-
-  useEffect(() => {
-    const available = generateTimeOptions();
-    if (available.length > 0 && !available.includes(addFormData.time)) {
-      setAddFormData(prev => ({ ...prev, time: available[0] }));
-    }
-  }, [addFormData.day, busySlots]);
-
-  useEffect(() => {
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (dayDropdownRef.current && !dayDropdownRef.current.contains(event.target as Node)) {
-        setIsDayDropdownOpen(false);
-      }
-      if (timeDropdownRef.current && !timeDropdownRef.current.contains(event.target as Node)) {
-        setIsTimeDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, []);
 
   useEffect(() => {
     if (!trip?.destination) return;
@@ -316,7 +233,6 @@ export function Explore() {
             price: generateDeterministicPrice(attractionId, category),
             saved: userSavedIds.includes(attractionId),
             userVote: null,
-            // RECONSTRUIT: Extragere securizată a coordonatelor hărții din GeoJSON pentru algoritmul hibrid
             lat: f.geometry?.coordinates ? Number(f.geometry.coordinates[1]) : defaultLat,
             lng: f.geometry?.coordinates ? Number(f.geometry.coordinates[0]) : defaultLng
           };
@@ -377,6 +293,11 @@ export function Explore() {
   };
 
   const handleOriginalVote = async (attractionId: string, type: "up" | "down") => {
+    // SECURITY GUARD: Dacă votul e închis, blocăm acțiunea de votare la nivel de cod
+    if (trip?.votingStatus === "finished") {
+      toast.error("Votarea a fost încheiată pentru această călătorie.");
+      return;
+    }
     if (!auth.currentUser || !tripId) return;
     const userId = auth.currentUser.uid;
     const voteDocRef = doc(db, "trips", tripId, "attractionVotes", attractionId);
@@ -394,31 +315,40 @@ export function Explore() {
     await setDoc(voteDocRef, { up: Math.max(0, newUp), down: Math.max(0, newDown), voters: newVoters });
   };
 
-  const handleConfirmAdd = async () => {
-    if (!selectedAttraction || !auth.currentUser) return;
+  const handleDirectAddProposal = async (attr: Attraction) => {
+    // SECURITY GUARD: Blocăm propunerea dacă sesiunea e închisă
+    if (trip?.votingStatus === "finished") {
+      toast.error("Planul este finalizat. Nu mai poți trimite propuneri.");
+      return;
+    }
+    if (!auth.currentUser || !tripId) return;
     try {
-      // RECONSTRUIT: Maparea și salvarea explicită a lat/lng ca numere în Firestore
-      await addDoc(collection(db, "trips", addFormData.targetTripId, "itinerary"), {
-        name: selectedAttraction.name,
-        description: selectedAttraction.description,
-        location: selectedAttraction.name,
-        time: addFormData.time,
-        day: addFormData.day,
-        duration: selectedAttraction.duration,
-        price: selectedAttraction.price,
-        type: selectedAttraction.category === "Restaurante" ? "meal" : "attraction",
-        image: selectedAttraction.image,
+      const cityName = trip?.destination?.split(',')[0].trim() || "";
+      const structuredLocation = attr.name.toLowerCase().includes(cityName.toLowerCase())
+        ? attr.name
+        : `${attr.name}, ${cityName}`;
+
+      await addDoc(collection(db, "trips", tripId, "itinerary"), {
+        name: attr.name,
+        description: attr.description,
+        location: structuredLocation, 
+        duration: attr.duration,
+        price: attr.price,
+        type: attr.category === "Restaurante" ? "meal" : "attraction",
+        image: attr.image,
         addedBy: auth.currentUser.uid,
         createdAt: serverTimestamp(),
-        lat: Number(selectedAttraction.lat),
-        lng: Number(selectedAttraction.lng)
+        lat: Number(attr.lat),
+        lng: Number(attr.lng),
+        day: 0,
+        time: ""
       });
-      toast.success("Adăugat!"); setIsAddDialogOpen(false);
-    } catch (e) { toast.error("Eroare salvare."); }
+      toast.success(`Ai propus ${attr.name} pentru votare!`);
+    } catch (e) { toast.error("Eroare la trimiterea propunerii."); }
   };
 
-  // --- RECONSTRUIT: LOGICA DE GEOCODING ASINCRON LA SALVAREA MANUALĂ ---
   const handleSaveCustomActivity = async () => {
+    if (trip?.votingStatus === "finished") return;
     if (!customActivity.name || !customActivity.location) {
       toast.error("Numele și locația sunt obligatorii!");
       return;
@@ -442,8 +372,8 @@ export function Explore() {
         finalLat = parseFloat(geoData[0].lat);
         finalLng = parseFloat(geoData[0].lon);
       } else {
-        finalLat = trip?.lat ? Number(trip.lat) : 0;
-        finalLng = trip?.lng ? Number(trip.lng) : 0;
+        finalLat = trip?.lat ? Number(trip.lat) : 47.4979; 
+        finalLng = trip?.lng ? Number(trip.lng) : 19.0402;
       }
 
       const finalLocationText = customActivity.location.toLowerCase().includes(cityName.toLowerCase())
@@ -454,35 +384,30 @@ export function Explore() {
         name: customActivity.name,
         description: customActivity.description || "Activitate adăugată manual",
         location: finalLocationText, 
-        time: customActivity.time,
-        day: Number(customActivity.day),
-        duration: customActivity.duration || "2h",
+        duration: "2h",
         price: customActivity.price || "Gratuit",
         type: customActivity.type, 
-        image: customActivity.image || `https://tse1.mm.bing.net/th?q=${encodeURIComponent(customActivity.name + " " + cityName)}&w=1200&h=800&c=1&p=0`,
+        image: `https://tse1.mm.bing.net/th?q=${encodeURIComponent(customActivity.name + " " + cityName)}&w=1200&h=800&c=1&p=0`,
         addedBy: auth.currentUser?.uid,
         createdAt: serverTimestamp(),
         lat: finalLat,
-        lng: finalLng
+        lng: finalLng,
+        day: 0,
+        time: ""
       });
 
-      toast.success("Activitate manuală adăugată cu succes!");
+      toast.success("Propunere manuală înregistrată!");
       setIsCustomActivityModalOpen(false); 
       
       setCustomActivity({
         name: "",
         description: "",
         location: "",
-        time: "10:00",
-        duration: "2h",
         price: "",
-        type: "attraction",
-        day: 1,
-        image: ""
+        type: "attraction"
       });
 
     } catch (error) {
-      console.error("Eroare la salvarea activității manuale:", error);
       toast.error("A apărut o eroare la salvare.");
     } finally {
       setIsSaving(false);
@@ -523,16 +448,6 @@ export function Explore() {
     } catch (e) { toast.error("Eroare la salvare."); }
   };
 
-  const handleOpenAddDialog = (attraction: Attraction) => {
-    setSelectedAttraction(attraction);
-    
-    const available = generateTimeOptions();
-    const defaultTime = available.includes("10:00") ? "10:00" : (available[0] || "00:00");
-    
-    setAddFormData({ targetTripId: tripId, day: 1, time: defaultTime, duration: attraction.duration });
-    setIsAddDialogOpen(true);
-  };
-
   const handleOpenChatDialog = (attraction: Attraction) => {
     setSelectedAttraction(attraction);
     setChatFormData({ targetTripId: tripId });
@@ -540,21 +455,34 @@ export function Explore() {
   };
 
   const categories = ["all", "Restaurante", "Muzee", "Istoric", "Atracții"];
-  const searchSuggestions = searchQuery.length > 0 
-    ? attractions.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 5)
-    : [];
   const filteredAttractions = attractions.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase()) && (selectedCategory === "all" || a.category === selectedCategory));
 
   if (!trip) return <div className="h-screen flex items-center justify-center dark:bg-gray-950"><Loader2 className="animate-spin text-blue-600" /></div>;
 
+  // Variabilă helper booleană pentru a verifica starea sesiunii
+  const isVotingClosed = trip?.votingStatus === "finished";
+
   return (
     <div className="bg-gray-50 dark:bg-gray-950 transition-colors duration-300 text-gray-900 dark:text-white pb-20">
       <header className="sticky top-0 z-50 w-full bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800">
-        <div className="max-w-md mx-auto h-16 flex items-center px-6 gap-4">
+        <div className="max-w-md mx-auto h-16 px-6 flex items-center gap-4">
           <Link to={`/trip/${tripId}`} className="text-gray-500 hover:text-gray-900 dark:text-gray-400 active:scale-90 transition-all"><ArrowLeft className="w-6 h-6 stroke-[2.5]" /></Link>
           <h1 className="text-xl font-bold truncate">Explorează {trip.destination.split(',')[0]}</h1>
         </div>
       </header>
+
+      {/* --- BANNER INTEGRAT PENTRU STATE LOCK DE COMBATERE CONFURIE (DACA VOTUL E INCHIS) --- */}
+      {isVotingClosed && (
+        <div className="max-w-md mx-auto mt-4 px-6 animate-in slide-in-from-top-3 duration-300">
+          <div className="bg-red-50/80 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
+            <Lock className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0" />
+            <div className="text-left">
+              <h4 className="text-xs font-black uppercase text-red-800 dark:text-red-400 tracking-wider">Planificare Finalizată</h4>
+              <p className="text-[11px] text-red-600 dark:text-red-400/90 font-medium mt-0.5">Sesiunea de votare a fost blocată de administrator. Interfața este acum în modul de citire.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="p-6 flex flex-col items-center">
         <div className="w-full max-w-md">
@@ -564,12 +492,17 @@ export function Explore() {
               <input type="text" placeholder="Caută locații..." value={searchQuery} onFocus={() => setIsDropdownOpen(true)} onChange={(e) => { setSearchQuery(e.target.value); setIsDropdownOpen(true); }} className="w-full pl-12 pr-4 py-4 border border-gray-200 dark:border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white dark:bg-gray-900 shadow-sm transition-all" />
             </div>
             
-            {/* Buton adițional pentru deschiderea modalului de activitate manuală de test */}
+            {/* MODIFICAT DINAMIC: Dezactivăm și schimbăm stilul butonului custom dacă votul e închis */}
             <button 
-              onClick={() => setIsCustomActivityModalOpen(true)} 
-              className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md active:scale-95 transition-all"
+              onClick={() => !isVotingClosed && setIsCustomActivityModalOpen(true)} 
+              disabled={isVotingClosed}
+              className={`w-full py-3.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-md transition-all ${
+                isVotingClosed 
+                  ? "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed shadow-none" 
+                  : "bg-gradient-to-r from-blue-500 to-indigo-600 text-white active:scale-95"
+              }`}
             >
-              + Adaugă atracție manuală (Custom)
+              {isVotingClosed ? "Adăugare manuală blocată" : "+ Adaugă atracție manuală (Custom)"}
             </button>
 
             <div className="flex w-full justify-between gap-4 overflow-x-auto py-2 px-1 scrollbar-hide no-scrollbar">
@@ -619,7 +552,7 @@ export function Explore() {
               const isAlreadyAdded = addedActivitiesNames.includes(attr.name);
 
               return (
-              <div id={attr.id} key={attr.id} className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-sm overflow-hidden border border-gray-100 dark:border-gray-800 hover:shadow-xl transition-all duration-300">
+              <div id={attr.id} key={attr.id} className="bg-white rounded-[2.5rem] dark:bg-gray-900 shadow-sm overflow-hidden border border-gray-100 dark:border-gray-800 hover:shadow-xl transition-all duration-300">
                 <div className="relative h-64 w-full flex">
                   <ImageWithFallback src={attr.image} alt={attr.name} className="w-full h-full object-cover" />
                   <button onClick={() => toggleSave(attr.id)} className="absolute top-4 right-4 w-12 h-12 bg-white/90 dark:bg-gray-900/90 rounded-full flex items-center justify-center shadow-lg"><Heart className={`w-6 h-6 ${userSavedIds.includes(attr.id) ? "fill-red-500 text-red-500" : "text-gray-400"}`} /></button>
@@ -637,12 +570,61 @@ export function Explore() {
                       <div><span className="text-[10px] text-gray-400 font-bold uppercase">Preț</span><span className="text-sm font-bold flex items-center gap-1 text-blue-600"><DollarSign className="w-3.5 h-3.5" />{attr.price}</span></div>
                     </div>
                   </div>
+                  
+                  {/* MODIFICAT DINAMIC: Dezactivăm visual opțiunile de vot dacă sesiunea e marcată închisă */}
                   <div className="flex gap-2 mb-4">
-                    <button onClick={() => handleOriginalVote(attr.id, "up")} className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl font-bold ${userVote === "up" ? "bg-green-500 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-500"}`}><ThumbsUp className="w-4 h-4" /> {persistentVote.up || 0}</button>
-                    <button onClick={() => handleOriginalVote(attr.id, "down")} className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl font-bold ${userVote === "down" ? "bg-red-500 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-500"}`}><ThumbsDown className="w-4 h-4" /> {persistentVote.down || 0}</button>
+                    <button 
+                      onClick={() => handleOriginalVote(attr.id, "up")} 
+                      disabled={isVotingClosed}
+                      className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl font-bold transition-all ${
+                        isVotingClosed ? "bg-gray-50/50 text-gray-300 dark:bg-gray-800/40 cursor-not-allowed" :
+                        userVote === "up" ? "bg-green-500 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-500"
+                      }`}
+                    >
+                      <ThumbsUp className="w-4 h-4" /> {persistentVote.up || 0}
+                    </button>
+                    <button 
+                      onClick={() => handleOriginalVote(attr.id, "down")} 
+                      disabled={isVotingClosed}
+                      className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl font-bold transition-all ${
+                        isVotingClosed ? "bg-gray-50/50 text-gray-300 dark:bg-gray-800/40 cursor-not-allowed" :
+                        userVote === "down" ? "bg-red-500 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-500"
+                      }`}
+                    >
+                      <ThumbsDown className="w-4 h-4" /> {persistentVote.down || 0}
+                    </button>
                   </div>
+                  
                   <div className="flex gap-2">
-                    <button onClick={() => handleOpenAddDialog(attr)} disabled={isAlreadyAdded} className={`flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg ${isAlreadyAdded ? "bg-gray-200 text-gray-400 cursor-not-allowed shadow-none active:scale-100" : "bg-gray-900 dark:bg-white text-white dark:text-gray-900"}`}>{isAlreadyAdded ? "Adăugat" : "Adaugă"}</button>
+                    {/* MODIFICAT DINAMIC: Dezactivăm butonul principal de trimitere propuneri */}
+                    <button 
+                      onClick={() => handleDirectAddProposal(attr)} 
+                      disabled={isAlreadyAdded || isVotingClosed} 
+                      className={`flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+                        isVotingClosed
+                          ? "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed shadow-none active:scale-100"
+                          : isAlreadyAdded 
+                            ? "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed shadow-none active:scale-100" 
+                            : "bg-gray-900 dark:bg-white text-white dark:text-gray-900"
+                      }`}
+                    >
+                      {isVotingClosed ? (
+                        <>
+                          <Lock className="w-4 h-4" />
+                          <span>Vot închis</span>
+                        </>
+                      ) : isAlreadyAdded ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          <span>Propus</span>
+                        </>
+                      ) : (
+                        <>
+                          <CalendarPlus className="w-4 h-4" />
+                          <span>Propune</span>
+                        </>
+                      )}
+                    </button>
                     <button onClick={() => handleOpenChatDialog(attr)} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg"><MessageCircle className="w-4 h-4" /> Chat</button>
                   </div>
                 </div>
@@ -652,105 +634,7 @@ export function Explore() {
         </div>
       </div>
 
-      {/* POP-UP MINIMALIST ADĂUGARE FORMULAR STANDARD */}
-      {isAddDialogOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-sm border border-gray-100 dark:border-gray-800 shadow-2xl">
-              <div className="flex justify-between items-start mb-6">
-                <div><h3 className="text-xl font-extrabold tracking-tight">Planificare</h3><p className="text-sm text-gray-500 mt-1">{selectedAttraction?.name}</p></div>
-                <button onClick={() => setIsAddDialogOpen(false)} className="p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-all"><X className="w-5 h-5" /></button>
-              </div>
-              
-              <div className="space-y-6 mb-8">
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Călătoria vizată</label>
-                  <select value={addFormData.targetTripId} onChange={(e) => setAddFormData({...addFormData, targetTripId: e.target.value})} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-4 font-bold outline-none text-gray-900 dark:text-white">
-                    {myTrips.map(t => (<option key={t.id} value={t.id}>{t.name}</option>))}
-                  </select>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div ref={dayDropdownRef} className="space-y-2 relative">
-                    <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Ziua</label>
-                    <button 
-                      type="button"
-                      onClick={() => { setIsDayDropdownOpen(!isDayDropdownOpen); setIsTimeDropdownOpen(false); }}
-                      className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-4 font-bold text-left text-gray-900 dark:text-white flex justify-between items-center transition-all"
-                    >
-                      <span>Ziua {addFormData.day}</span>
-                      <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isDayDropdownOpen ? "rotate-180" : ""}`} />
-                    </button>
-
-                    {isDayDropdownOpen && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 max-h-40 overflow-y-auto flex flex-col p-1.5 no-scrollbar">
-                        {Array.from({ length: getMaxDaysCount() }, (_, i) => i + 1).map((dayNum) => (
-                          <button
-                            key={dayNum}
-                            type="button"
-                            onClick={() => {
-                              setAddFormData({...addFormData, day: dayNum});
-                              setIsDayDropdownOpen(false);
-                            }}
-                            className={`w-full text-center py-2.5 text-sm font-bold rounded-lg transition-colors ${addFormData.day === dayNum ? "bg-blue-600 text-white" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-900 dark:text-white"}`}
-                          >
-                            Ziua {dayNum}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div ref={timeDropdownRef} className="space-y-2 relative">
-                    <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest px-1">Ora Start</label>
-                    <button 
-                      type="button"
-                      onClick={() => { setIsTimeDropdownOpen(!isTimeDropdownOpen); setIsDayDropdownOpen(false); }}
-                      className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-4 font-bold text-left text-gray-900 dark:text-white flex justify-between items-center transition-all"
-                    >
-                      <span>{generateTimeOptions().length === 0 ? "Ocupat" : addFormData.time}</span>
-                      <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isTimeDropdownOpen ? "rotate-180" : ""}`} />
-                    </button>
-
-                    {isTimeDropdownOpen && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 max-h-40 overflow-y-auto flex flex-col p-1.5 no-scrollbar">
-                        {generateTimeOptions().length === 0 ? (
-                          <span className="text-xs text-gray-400 font-bold p-3 text-center italic">Toate orele sunt ocupate în această zi.</span>
-                        ) : (
-                          generateTimeOptions().map((timeString) => (
-                            <button
-                              key={timeString}
-                              type="button"
-                              onClick={() => {
-                                setAddFormData({...addFormData, time: timeString});
-                                setIsTimeDropdownOpen(false);
-                              }}
-                              className={`w-full text-center py-2.5 text-sm font-bold rounded-lg transition-colors ${addFormData.time === timeString ? "bg-blue-600 text-white" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-900 dark:text-white"}`}
-                            >
-                              {timeString}
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex gap-3">
-                <button onClick={() => setIsAddDialogOpen(false)} className="flex-1 py-4 bg-gray-100 dark:bg-gray-800 text-gray-500 font-bold rounded-2xl text-xs uppercase tracking-widest">Anulează</button>
-                <button 
-                  onClick={handleConfirmAdd} 
-                  disabled={generateTimeOptions().length === 0}
-                  className={`flex-[1.5] py-4 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-lg ${generateTimeOptions().length === 0 ? "bg-gray-300 dark:bg-gray-800 cursor-not-allowed shadow-none text-gray-400" : "bg-blue-600"}`}
-                >
-                  Confirmă
-                </button>
-              </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- RECONSTRUIT: MODAL INTERACTIV PENTRU ADĂUGARE ACTIVITĂȚI MANUALE (CUSTOM) --- */}
+      {/* MODAL PENTRU ADĂUGARE ACTIVITĂȚI MANUALE (CUSTOM) */}
       {isCustomActivityModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-6 w-full max-w-sm border border-gray-100 dark:border-gray-800 shadow-2xl flex flex-col items-center">
