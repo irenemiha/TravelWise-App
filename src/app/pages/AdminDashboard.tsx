@@ -153,13 +153,6 @@ export function AdminDashboard() {
         
         {/* Header Admin */}
         <div className="w-full flex flex-col items-center mb-8 relative">
-          <button 
-            onClick={handleLogout}
-            className="absolute right-0 top-0 p-2.5 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl text-gray-400 hover:text-red-500 shadow-sm transition-colors"
-            title="Deconectare Admin"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
           <div className="w-16 h-16 rounded-3xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-4 shadow-xl shadow-red-500/10">
             <ShieldAlert className="w-8 h-8 text-red-600 dark:text-red-400" />
           </div>
